@@ -49,7 +49,7 @@ export async function runMigrations(
     }
 
     await db.execute(
-      "INSERT INTO _migrations (version, name) VALUES ($1, $2)",
+      "INSERT OR REPLACE INTO _migrations (version, name) VALUES ($1, $2)",
       [migration.version, migration.name]
     );
 
