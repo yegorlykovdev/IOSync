@@ -113,7 +113,7 @@ function UtilizationBar({ used, total }: { used: number; total: number }) {
 }
 
 export function PlcHardwarePage() {
-  const { selectedProject } = useProject();
+  const { selectedProject, readOnly } = useProject();
   const [modules, setModules] = useState<ModuleUtilization[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -288,7 +288,7 @@ export function PlcHardwarePage() {
             </div>
           )}
         </div>
-        <Button onClick={openCreate}>
+        <Button onClick={openCreate} disabled={readOnly}>
           <Plus className="mr-2 h-4 w-4" />
           Add Module
         </Button>
@@ -362,6 +362,7 @@ export function PlcHardwarePage() {
                           size="icon"
                           className="h-7 w-7"
                           onClick={() => openEdit(m)}
+                          disabled={readOnly}
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -370,6 +371,7 @@ export function PlcHardwarePage() {
                           size="icon"
                           className="h-7 w-7 text-destructive hover:text-destructive"
                           onClick={() => setDeleteConfirmId(m.id)}
+                          disabled={readOnly}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>

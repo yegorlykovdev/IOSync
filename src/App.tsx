@@ -2,12 +2,57 @@ import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { getDatabase } from "./db/database";
 import { ProjectProvider } from "./contexts/ProjectContext";
+import { UserProvider } from "./contexts/UserContext";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { AppLayout } from "./components/layout/AppLayout";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { PlcHardwarePage } from "./pages/PlcHardwarePage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { useFileLock } from "./hooks/useFileLock";
 import "./App.css";
+
+function AppRoutes() {
+  const fileLock = useFileLock();
+
+  return (
+    <BrowserRouter>
+      <TooltipProvider>
+        <ProjectProvider readOnly={fileLock.readOnly}>
+          <Routes>
+            <Route
+              element={
+                <AppLayout
+                  readOnly={fileLock.readOnly}
+                  lockedBy={fileLock.lockedBy}
+                />
+              }
+            >
+              <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/plc-hardware" element={<PlcHardwarePage />} />
+              <Route
+                path="/io-list"
+                element={<PlaceholderPage title="IO List" />}
+              />
+              <Route
+                path="/cables"
+                element={<PlaceholderPage title="Cables" />}
+              />
+              <Route
+                path="/panels"
+                element={<PlaceholderPage title="Panels" />}
+              />
+              <Route
+                path="/revisions"
+                element={<PlaceholderPage title="Revisions" />}
+              />
+              <Route path="*" element={<Navigate to="/projects" replace />} />
+            </Route>
+          </Routes>
+        </ProjectProvider>
+      </TooltipProvider>
+    </BrowserRouter>
+  );
+}
 
 function App() {
   const [dbReady, setDbReady] = useState(false);
@@ -40,35 +85,9 @@ function App() {
   }
 
   return (
-    <BrowserRouter>
-      <TooltipProvider>
-        <ProjectProvider>
-          <Routes>
-            <Route element={<AppLayout />}>
-              <Route path="/projects" element={<ProjectsPage />} />
-              <Route path="/plc-hardware" element={<PlcHardwarePage />} />
-              <Route
-                path="/io-list"
-                element={<PlaceholderPage title="IO List" />}
-              />
-              <Route
-                path="/cables"
-                element={<PlaceholderPage title="Cables" />}
-              />
-              <Route
-                path="/panels"
-                element={<PlaceholderPage title="Panels" />}
-              />
-              <Route
-                path="/revisions"
-                element={<PlaceholderPage title="Revisions" />}
-              />
-              <Route path="*" element={<Navigate to="/projects" replace />} />
-            </Route>
-          </Routes>
-        </ProjectProvider>
-      </TooltipProvider>
-    </BrowserRouter>
+    <UserProvider>
+      <AppRoutes />
+    </UserProvider>
   );
 }
 

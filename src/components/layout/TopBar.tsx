@@ -1,11 +1,19 @@
-import { Moon, Sun } from "lucide-react";
+import { Moon, Sun, Lock, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { useProject } from "@/contexts/ProjectContext";
+import { useUser } from "@/contexts/UserContext";
 import { useTheme } from "@/hooks/useTheme";
 import { PLC_PLATFORM_LABELS } from "@/lib/plc-address";
 
-export function TopBar() {
+interface TopBarProps {
+  readOnly?: boolean;
+  lockedBy?: string | null;
+}
+
+export function TopBar({ readOnly, lockedBy }: TopBarProps) {
   const { selectedProject } = useProject();
+  const { username } = useUser();
   const { theme, toggleTheme } = useTheme();
 
   return (
@@ -22,14 +30,30 @@ export function TopBar() {
         ) : (
           "No project selected"
         )}
-      </div>
-      <Button variant="ghost" size="icon" onClick={toggleTheme}>
-        {theme === "dark" ? (
-          <Sun className="h-4 w-4" />
-        ) : (
-          <Moon className="h-4 w-4" />
+        {readOnly && (
+          <>
+            <Separator orientation="vertical" className="h-4" />
+            <span className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+              <Lock className="h-3 w-3" />
+              Read-only
+              {lockedBy && ` (locked by ${lockedBy})`}
+            </span>
+          </>
         )}
-      </Button>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <User className="h-3.5 w-3.5" />
+          {username}
+        </span>
+        <Button variant="ghost" size="icon" onClick={toggleTheme}>
+          {theme === "dark" ? (
+            <Sun className="h-4 w-4" />
+          ) : (
+            <Moon className="h-4 w-4" />
+          )}
+        </Button>
+      </div>
     </header>
   );
 }

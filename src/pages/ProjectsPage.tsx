@@ -28,7 +28,7 @@ import {
 } from "@/lib/plc-address";
 
 export function ProjectsPage() {
-  const { projects, selectedProject, selectProject, createProject } =
+  const { projects, selectedProject, selectProject, createProject, readOnly } =
     useProject();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -68,7 +68,7 @@ export function ProjectsPage() {
         <h1 className="text-2xl font-semibold">Projects</h1>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button disabled={readOnly}>
               <Plus className="mr-2 h-4 w-4" />
               New Project
             </Button>

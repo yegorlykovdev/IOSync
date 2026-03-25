@@ -33,11 +33,12 @@ interface ProjectContextValue {
   refreshProjects: () => Promise<void>;
   createProject: (data: CreateProjectData) => Promise<void>;
   updateProject: (id: number, data: Partial<CreateProjectData>) => Promise<void>;
+  readOnly: boolean;
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
-export function ProjectProvider({ children }: { children: ReactNode }) {
+export function ProjectProvider({ children, readOnly = false }: { children: ReactNode; readOnly?: boolean }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
@@ -118,6 +119,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         refreshProjects,
         createProject,
         updateProject,
+        readOnly,
       }}
     >
       {children}

@@ -8,11 +8,19 @@ Desktop app for control engineers to manage IO Lists, Cable Schedules, and Panel
 - **Database:** SQLite via `@tauri-apps/plugin-sql` (frontend) + `tauri-plugin-sql` (Rust)
 - **Migrations:** Custom TS runner in `src/db/migrate.ts` — runs on app startup
 - **Routing:** react-router-dom with layout route in `src/App.tsx`
-- **State:** React context for selected project (`src/contexts/ProjectContext.tsx`)
+- **State:** React context for selected project (`src/contexts/ProjectContext.tsx`), user (`src/contexts/UserContext.tsx`)
 - **Theme:** Dark/light with CSS variables, toggle in top bar, persisted to localStorage
 - **Path alias:** `@/` maps to `src/`
 - **Build check:** Always run `pnpm tauri build` after changes to verify both TS and Rust compile
 - **PLC Addressing:** Multi-platform address formatter in `src/lib/plc-address.ts` — platform is stored per-project
+- **User identification:** OS username via `whoami` crate (Rust command `get_username`), shown in top bar
+- **File locking:** `.lock` file next to `.db` with username + timestamp; 1-hour stale timeout; same user can reacquire
+
+## Custom Tauri Commands (src-tauri/src/lib.rs)
+
+- `get_username()` → String — returns OS username via `whoami` crate
+- `acquire_lock(db_path)` → LockInfo — creates `.lock` file, returns `{locked, username, timestamp}` if held by another user
+- `release_lock(db_path)` — removes `.lock` file if owned by current user
 
 ## Database Schema
 
@@ -27,7 +35,7 @@ Desktop app for control engineers to manage IO Lists, Cable Schedules, and Panel
 - **panels** → projects — physical panel enclosures
 - **panel_components** → panels — devices placed on panels
 - **terminal_blocks** → panel_components — terminal strips on components
-- **revisions** → projects — audit log of all field-level changes
+- **revisions** → projects — audit log (changed_by = OS username)
 - **snapshots** → projects — named full-project JSON dumps for versioning
 
 **002_add_plc_platform:** Adds `plc_platform`, `custom_address_prefix`, `custom_address_pattern` to projects
@@ -47,32 +55,43 @@ Address formatting in `src/lib/plc-address.ts` supports 7 platforms:
 
 Platform is selected at project creation and displayed in TopBar, project cards, and PLC Hardware page.
 
+## Read-Only Mode
+
+When another user holds the `.lock` file:
+- TopBar shows red "Read-only (locked by X)" badge
+- `ProjectContext.readOnly` flag is `true`
+- All create/edit/delete buttons are disabled across Projects and PLC Hardware pages
+- Lock is released on window unload or component unmount; stale locks (>1 hour) are auto-overridden
+
 ## Project Structure
 
 ```
 src/
-  App.tsx                    — Root: DB init, routing, providers
+  App.tsx                    — Root: DB init, routing, providers (UserProvider, ProjectProvider)
   App.css                    — Tailwind + theme CSS variables (light + dark)
   db/                        — Database layer
     database.ts              — Singleton getDatabase()
-    migrate.ts               — Migration runner
+    migrate.ts               — Migration runner (handles partial re-runs)
     migrations/              — Numbered migration files (001, 002)
   lib/
     utils.ts                 — cn() utility for Tailwind class merging
     plc-address.ts           — Multi-platform PLC address formatter
   components/
-    layout/                  — AppLayout, Sidebar, TopBar
+    layout/                  — AppLayout, Sidebar, TopBar (shows user + lock status)
     ui/                      — shadcn/ui components
   contexts/
-    ProjectContext.tsx        — Selected project state + CRUD + updateProject
+    ProjectContext.tsx        — Selected project state + CRUD + readOnly flag
+    UserContext.tsx           — OS username from Rust command
   hooks/
     useTheme.ts              — Dark/light theme toggle
+    useFileLock.ts           — Acquire/release .lock file via Rust commands
   pages/
     ProjectsPage.tsx         — Project list + create dialog (with platform selector)
     PlcHardwarePage.tsx      — PLC module CRUD + utilization + address display
     PlaceholderPage.tsx      — Stub for unbuilt pages
 src-tauri/
-  src/lib.rs                 — Tauri plugins (opener, sql)
+  src/lib.rs                 — Tauri commands (get_username, acquire_lock, release_lock) + plugins
+  Cargo.toml                 — whoami + chrono crates
   capabilities/default.json  — ACL permissions
 ```
 
@@ -91,6 +110,10 @@ src-tauri/
   - Channel utilization bars (used/total with color coding)
   - Multi-platform PLC address formatting (7 platforms)
   - Platform selector at project creation, displayed throughout UI
+- 1.1c User Identification & File Locking — COMPLETE
+  - OS username auto-detected via whoami crate, shown in top bar
+  - File locking with .lock file for multi-user shared DB access
+  - Read-only mode when another user holds the lock
 
 ## Next Up
 
