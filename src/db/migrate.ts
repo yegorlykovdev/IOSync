@@ -23,6 +23,17 @@ async function getAppliedVersions(db: Database): Promise<Set<number>> {
   return new Set(rows.map((r) => r.version));
 }
 
+// Errors that are safe to ignore during re-runs of partially applied migrations
+const SAFE_ERROR_PATTERNS = [
+  "duplicate column name",
+  "already exists",
+];
+
+function isSafeError(err: unknown): boolean {
+  const msg = String(err).toLowerCase();
+  return SAFE_ERROR_PATTERNS.some((p) => msg.includes(p));
+}
+
 export async function runMigrations(
   db: Database,
   migrations: Migration[]
@@ -38,14 +49,21 @@ export async function runMigrations(
   for (const migration of pending) {
     console.log(`[migrate] Applying migration ${migration.version}: ${migration.name}`);
 
-    // Split multi-statement SQL and execute each statement
     const statements = migration.up
       .split(";")
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 
     for (const stmt of statements) {
-      await db.execute(stmt);
+      try {
+        await db.execute(stmt);
+      } catch (err) {
+        if (isSafeError(err)) {
+          console.warn(`[migrate] Skipping (already applied): ${stmt.slice(0, 60)}...`);
+        } else {
+          throw err;
+        }
+      }
     }
 
     await db.execute(
