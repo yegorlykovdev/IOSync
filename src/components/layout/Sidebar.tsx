@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import {
   FolderOpen,
+  Cpu,
   ListChecks,
   Cable,
   PanelTop,
@@ -12,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 
 const navItems = [
   { to: "/projects", label: "Projects", icon: FolderOpen },
+  { to: "/plc-hardware", label: "PLC Hardware", icon: Cpu },
   { to: "/io-list", label: "IO List", icon: ListChecks },
   { to: "/cables", label: "Cables", icon: Cable },
   { to: "/panels", label: "Panels", icon: PanelTop },

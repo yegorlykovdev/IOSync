@@ -5,6 +5,7 @@ import { ProjectProvider } from "./contexts/ProjectContext";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { AppLayout } from "./components/layout/AppLayout";
 import { ProjectsPage } from "./pages/ProjectsPage";
+import { PlcHardwarePage } from "./pages/PlcHardwarePage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import "./App.css";
 
@@ -45,6 +46,7 @@ function App() {
           <Routes>
             <Route element={<AppLayout />}>
               <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/plc-hardware" element={<PlcHardwarePage />} />
               <Route
                 path="/io-list"
                 element={<PlaceholderPage title="IO List" />}
