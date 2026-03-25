@@ -24,11 +24,11 @@ Desktop app for control engineers to manage IO Lists, Cable Schedules, and Panel
 
 ## Database Schema
 
-10 tables across 2 migrations:
+10 tables across 3 migrations:
 
 **001_initial_schema:** Core tables
 - **projects** — top-level entity; includes `plc_platform`, `custom_address_prefix`, `custom_address_pattern` (added in 002)
-- **plc_hardware** → projects — PLC modules with rack/slot/channel info
+- **plc_hardware** → projects — PLC modules with rack/slot/channel info; supports 3 categories: IO, Communication, CPU (added in 003)
 - **signals** → projects, plc_hardware, cables, panels — IO points (DI/DO/AI/AO)
 - **cables** → projects — cable runs between locations/devices
 - **cable_cores** → cables, signals — individual cores within a cable
@@ -39,6 +39,8 @@ Desktop app for control engineers to manage IO Lists, Cable Schedules, and Panel
 - **snapshots** → projects — named full-project JSON dumps for versioning
 
 **002_add_plc_platform:** Adds `plc_platform`, `custom_address_prefix`, `custom_address_pattern` to projects
+
+**003_add_module_categories:** Adds `module_category` (io/communication/cpu), `protocol`, `ip_address`, `port`, `baud_rate`, `station_address`, `firmware_version` to plc_hardware
 
 All tables have foreign keys with CASCADE/SET NULL and indexes on `project_id` + frequently queried columns.
 
@@ -72,7 +74,7 @@ src/
   db/                        — Database layer
     database.ts              — Singleton getDatabase()
     migrate.ts               — Migration runner (handles partial re-runs)
-    migrations/              — Numbered migration files (001, 002)
+    migrations/              — Numbered migration files (001, 002, 003)
   lib/
     utils.ts                 — cn() utility for Tailwind class merging
     plc-address.ts           — Multi-platform PLC address formatter
@@ -87,7 +89,7 @@ src/
     useFileLock.ts           — Acquire/release .lock file via Rust commands
   pages/
     ProjectsPage.tsx         — Project list + create dialog (with platform selector)
-    PlcHardwarePage.tsx      — PLC module CRUD + utilization + address display
+    PlcHardwarePage.tsx      — PLC module CRUD + utilization + address display + module categories (IO/Comm/CPU)
     PlaceholderPage.tsx      — Stub for unbuilt pages
 src-tauri/
   src/lib.rs                 — Tauri commands (get_username, acquire_lock, release_lock) + plugins
@@ -110,6 +112,10 @@ src-tauri/
   - Channel utilization bars (used/total with color coding)
   - Multi-platform PLC address formatting (7 platforms)
   - Platform selector at project creation, displayed throughout UI
+  - Module categories: IO Module, Communication Module, CPU/Processor
+  - Conditional form fields per category (protocol/IP/baud for comms, firmware/IP for CPU)
+  - Non-IO modules show protocol/IP instead of channel info in table
+  - Only IO modules contribute to channel summary and utilization
 - 1.1c User Identification & File Locking — COMPLETE
   - OS username auto-detected via whoami crate, shown in top bar
   - File locking with .lock file for multi-user shared DB access

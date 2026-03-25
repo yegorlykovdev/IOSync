@@ -34,6 +34,8 @@ import {
 } from "@/components/ui/table";
 import { Plus, Pencil, Trash2, Cpu } from "lucide-react";
 
+type ModuleCategory = "io" | "communication" | "cpu";
+
 interface PlcModule {
   id: number;
   project_id: number;
@@ -43,6 +45,13 @@ interface PlcModule {
   module_type: string;
   channels: number;
   channel_type: ChannelType;
+  module_category: ModuleCategory;
+  protocol: string | null;
+  ip_address: string | null;
+  port: number | null;
+  baud_rate: number | null;
+  station_address: number | null;
+  firmware_version: string | null;
   created_at: string;
 }
 
@@ -59,17 +68,59 @@ const CHANNEL_TYPE_COLORS: Record<ChannelType, string> = {
   AO: "bg-red-500/15 text-red-700 dark:text-red-400",
 };
 
-const MODULE_TYPES = [
+const MODULE_CATEGORIES: { value: ModuleCategory; label: string }[] = [
+  { value: "io", label: "IO Module" },
+  { value: "communication", label: "Communication Module" },
+  { value: "cpu", label: "CPU / Processor" },
+];
+
+const CATEGORY_COLORS: Record<ModuleCategory, string> = {
+  io: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+  communication: "bg-purple-500/15 text-purple-700 dark:text-purple-400",
+  cpu: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400",
+};
+
+const IO_MODULE_TYPES = [
   "Digital Input",
   "Digital Output",
   "Analog Input",
   "Analog Output",
   "Mixed IO",
-  "Communication",
-  "Power Supply",
-  "CPU",
-  "Other",
 ];
+
+const COMM_MODULE_TYPES = [
+  "Communication",
+  "Gateway",
+  "Network Adapter",
+];
+
+const CPU_MODULE_TYPES = [
+  "CPU",
+  "Safety CPU",
+  "Coprocessor",
+];
+
+const PROTOCOLS = [
+  "Modbus RTU",
+  "Modbus TCP",
+  "BACnet",
+  "PROFINET",
+  "PROFIBUS",
+  "EtherNet/IP",
+  "DeviceNet",
+  "Custom",
+];
+
+function getModuleTypesForCategory(category: ModuleCategory): string[] {
+  switch (category) {
+    case "io":
+      return IO_MODULE_TYPES;
+    case "communication":
+      return COMM_MODULE_TYPES;
+    case "cpu":
+      return CPU_MODULE_TYPES;
+  }
+}
 
 interface FormState {
   plc_name: string;
@@ -78,6 +129,13 @@ interface FormState {
   module_type: string;
   channels: string;
   channel_type: ChannelType;
+  module_category: ModuleCategory;
+  protocol: string;
+  ip_address: string;
+  port: string;
+  baud_rate: string;
+  station_address: string;
+  firmware_version: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -87,6 +145,13 @@ const EMPTY_FORM: FormState = {
   module_type: "",
   channels: "",
   channel_type: "DI",
+  module_category: "io",
+  protocol: "",
+  ip_address: "",
+  port: "",
+  baud_rate: "",
+  station_address: "",
+  firmware_version: "",
 };
 
 function UtilizationBar({ used, total }: { used: number; total: number }) {
@@ -133,7 +198,7 @@ export function PlcHardwarePage() {
          GROUP BY plc_hardware_id
        ) s ON s.plc_hardware_id = h.id
        WHERE h.project_id = $1
-       ORDER BY h.plc_name, h.rack, h.slot`,
+       ORDER BY h.rack, h.slot, h.plc_name`,
       [selectedProject.id]
     );
     setModules(rows);
@@ -187,53 +252,75 @@ export function PlcHardwarePage() {
       module_type: m.module_type,
       channels: String(m.channels),
       channel_type: m.channel_type,
+      module_category: m.module_category || "io",
+      protocol: m.protocol || "",
+      ip_address: m.ip_address || "",
+      port: m.port != null ? String(m.port) : "",
+      baud_rate: m.baud_rate != null ? String(m.baud_rate) : "",
+      station_address: m.station_address != null ? String(m.station_address) : "",
+      firmware_version: m.firmware_version || "",
     });
     setDialogOpen(true);
+  };
+
+  const handleCategoryChange = (category: ModuleCategory) => {
+    const types = getModuleTypesForCategory(category);
+    setForm((f) => ({
+      ...f,
+      module_category: category,
+      module_type: types[0] || "",
+      // Reset IO-specific fields for non-IO
+      ...(category !== "io" ? { channels: "0", channel_type: "DI" as ChannelType } : {}),
+      // Reset comm-specific fields for non-comm
+      ...(category !== "communication" ? { protocol: "", baud_rate: "", station_address: "" } : {}),
+    }));
   };
 
   const handleSave = async () => {
     const rack = parseInt(form.rack);
     const slot = parseInt(form.slot);
-    const channels = parseInt(form.channels);
+    const channels = form.module_category === "io" ? parseInt(form.channels) : 0;
     if (
       !form.plc_name.trim() ||
       !form.module_type ||
       isNaN(rack) ||
       isNaN(slot) ||
-      isNaN(channels) ||
-      channels < 1
+      (form.module_category === "io" && (isNaN(channels) || channels < 1))
     )
       return;
 
     const db = await getDatabase();
+    const params = [
+      form.plc_name.trim(),
+      rack,
+      slot,
+      form.module_type,
+      channels,
+      form.module_category === "io" ? form.channel_type : "DI",
+      form.module_category,
+      form.module_category === "communication" && form.protocol ? form.protocol : null,
+      form.ip_address.trim() || null,
+      form.port ? parseInt(form.port) : null,
+      form.module_category === "communication" && form.baud_rate ? parseInt(form.baud_rate) : null,
+      form.module_category === "communication" && form.station_address ? parseInt(form.station_address) : null,
+      form.firmware_version.trim() || null,
+    ];
+
     if (editingId) {
       await db.execute(
         `UPDATE plc_hardware
-         SET plc_name=$1, rack=$2, slot=$3, module_type=$4, channels=$5, channel_type=$6
-         WHERE id=$7`,
-        [
-          form.plc_name.trim(),
-          rack,
-          slot,
-          form.module_type,
-          channels,
-          form.channel_type,
-          editingId,
-        ]
+         SET plc_name=$1, rack=$2, slot=$3, module_type=$4, channels=$5, channel_type=$6,
+             module_category=$7, protocol=$8, ip_address=$9, port=$10,
+             baud_rate=$11, station_address=$12, firmware_version=$13
+         WHERE id=$14`,
+        [...params, editingId]
       );
     } else {
       await db.execute(
-        `INSERT INTO plc_hardware (project_id, plc_name, rack, slot, module_type, channels, channel_type)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [
-          selectedProject.id,
-          form.plc_name.trim(),
-          rack,
-          slot,
-          form.module_type,
-          channels,
-          form.channel_type,
-        ]
+        `INSERT INTO plc_hardware (project_id, plc_name, rack, slot, module_type, channels, channel_type,
+             module_category, protocol, ip_address, port, baud_rate, station_address, firmware_version)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [selectedProject.id, ...params]
       );
     }
     setDialogOpen(false);
@@ -252,9 +339,11 @@ export function PlcHardwarePage() {
     form.module_type &&
     !isNaN(parseInt(form.rack)) &&
     !isNaN(parseInt(form.slot)) &&
-    parseInt(form.channels) > 0;
+    (form.module_category !== "io" || parseInt(form.channels) > 0);
 
-  const summary = modules.reduce(
+  const ioModules = modules.filter((m) => (m.module_category || "io") === "io");
+
+  const summary = ioModules.reduce(
     (acc, m) => {
       acc[m.channel_type] = (acc[m.channel_type] || 0) + m.channels;
       return acc;
@@ -272,7 +361,7 @@ export function PlcHardwarePage() {
               {PLC_PLATFORM_LABELS[platform]}
             </span>
           </div>
-          {modules.length > 0 && (
+          {ioModules.length > 0 && (
             <div className="mt-1 flex gap-3">
               {CHANNEL_TYPES.map(
                 (ct) =>
@@ -310,6 +399,7 @@ export function PlcHardwarePage() {
                 <TableHead>PLC Name</TableHead>
                 <TableHead className="w-16">Rack</TableHead>
                 <TableHead className="w-16">Slot</TableHead>
+                <TableHead>Category</TableHead>
                 <TableHead>Module Type</TableHead>
                 <TableHead className="w-20">Type</TableHead>
                 <TableHead>Channels</TableHead>
@@ -319,18 +409,17 @@ export function PlcHardwarePage() {
             </TableHeader>
             <TableBody>
               {modules.map((m) => {
-                const startAddr = formatAddress(
-                  m.rack,
-                  m.slot,
-                  m.channel_type,
-                  0
-                );
-                const endAddr = formatAddress(
-                  m.rack,
-                  m.slot,
-                  m.channel_type,
-                  m.channels - 1
-                );
+                const category = m.module_category || "io";
+                const isIo = category === "io";
+                const startAddr = isIo
+                  ? formatAddress(m.rack, m.slot, m.channel_type, 0)
+                  : null;
+                const endAddr = isIo
+                  ? formatAddress(m.rack, m.slot, m.channel_type, m.channels - 1)
+                  : null;
+                const categoryLabel = MODULE_CATEGORIES.find(
+                  (c) => c.value === category
+                )?.label;
                 return (
                   <TableRow key={m.id}>
                     <TableCell className="font-medium">
@@ -338,22 +427,57 @@ export function PlcHardwarePage() {
                     </TableCell>
                     <TableCell>{m.rack}</TableCell>
                     <TableCell>{m.slot}</TableCell>
-                    <TableCell>{m.module_type}</TableCell>
                     <TableCell>
                       <span
-                        className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${CHANNEL_TYPE_COLORS[m.channel_type]}`}
+                        className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${CATEGORY_COLORS[category]}`}
                       >
-                        {m.channel_type}
+                        {categoryLabel}
                       </span>
                     </TableCell>
                     <TableCell>
-                      <UtilizationBar
-                        used={m.used_channels}
-                        total={m.channels}
-                      />
+                      <div>
+                        {m.module_type}
+                        {m.protocol && (
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            ({m.protocol})
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {isIo ? (
+                        <span
+                          className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${CHANNEL_TYPE_COLORS[m.channel_type]}`}
+                        >
+                          {m.channel_type}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {isIo ? (
+                        <UtilizationBar
+                          used={m.used_channels}
+                          total={m.channels}
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">
-                      {startAddr} – {endAddr}
+                      {isIo && startAddr && endAddr ? (
+                        <>
+                          {startAddr} – {endAddr}
+                        </>
+                      ) : m.ip_address ? (
+                        <span>
+                          {m.ip_address}
+                          {m.port != null ? `:${m.port}` : ""}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
@@ -394,6 +518,24 @@ export function PlcHardwarePage() {
             </DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="module_category">Module Category</Label>
+              <Select
+                value={form.module_category}
+                onValueChange={(v) => handleCategoryChange(v as ModuleCategory)}
+              >
+                <SelectTrigger id="module_category">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MODULE_CATEGORIES.map((c) => (
+                    <SelectItem key={c.value} value={c.value}>
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid gap-2">
               <Label htmlFor="plc_name">PLC Name</Label>
               <Input
@@ -443,7 +585,7 @@ export function PlcHardwarePage() {
                   <SelectValue placeholder="Select module type" />
                 </SelectTrigger>
                 <SelectContent>
-                  {MODULE_TYPES.map((t) => (
+                  {getModuleTypesForCategory(form.module_category).map((t) => (
                     <SelectItem key={t} value={t}>
                       {t}
                     </SelectItem>
@@ -451,44 +593,161 @@ export function PlcHardwarePage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="channels">Channel Count</Label>
-                <Input
-                  id="channels"
-                  type="number"
-                  min={1}
-                  value={form.channels}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, channels: e.target.value }))
-                  }
-                  placeholder="16"
-                />
+
+            {/* IO Module fields */}
+            {form.module_category === "io" && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="channels">Channel Count</Label>
+                  <Input
+                    id="channels"
+                    type="number"
+                    min={1}
+                    value={form.channels}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, channels: e.target.value }))
+                    }
+                    placeholder="16"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="channel_type">Channel Type</Label>
+                  <Select
+                    value={form.channel_type}
+                    onValueChange={(v) =>
+                      setForm((f) => ({
+                        ...f,
+                        channel_type: v as ChannelType,
+                      }))
+                    }
+                  >
+                    <SelectTrigger id="channel_type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CHANNEL_TYPES.map((ct) => (
+                        <SelectItem key={ct} value={ct}>
+                          {ct}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="channel_type">Channel Type</Label>
-                <Select
-                  value={form.channel_type}
-                  onValueChange={(v) =>
-                    setForm((f) => ({
-                      ...f,
-                      channel_type: v as ChannelType,
-                    }))
-                  }
-                >
-                  <SelectTrigger id="channel_type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CHANNEL_TYPES.map((ct) => (
-                      <SelectItem key={ct} value={ct}>
-                        {ct}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+            )}
+
+            {/* Communication Module fields */}
+            {form.module_category === "communication" && (
+              <>
+                <div className="grid gap-2">
+                  <Label htmlFor="protocol">Protocol</Label>
+                  <Select
+                    value={form.protocol}
+                    onValueChange={(v) =>
+                      setForm((f) => ({ ...f, protocol: v }))
+                    }
+                  >
+                    <SelectTrigger id="protocol">
+                      <SelectValue placeholder="Select protocol" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PROTOCOLS.map((p) => (
+                        <SelectItem key={p} value={p}>
+                          {p}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="ip_address">IP Address</Label>
+                    <Input
+                      id="ip_address"
+                      value={form.ip_address}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, ip_address: e.target.value }))
+                      }
+                      placeholder="192.168.1.100"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="port">Port</Label>
+                    <Input
+                      id="port"
+                      type="number"
+                      value={form.port}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, port: e.target.value }))
+                      }
+                      placeholder="502"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="baud_rate">Baud Rate</Label>
+                    <Input
+                      id="baud_rate"
+                      type="number"
+                      value={form.baud_rate}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, baud_rate: e.target.value }))
+                      }
+                      placeholder="9600"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="station_address">Station Address</Label>
+                    <Input
+                      id="station_address"
+                      type="number"
+                      value={form.station_address}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          station_address: e.target.value,
+                        }))
+                      }
+                      placeholder="1"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* CPU / Processor fields */}
+            {form.module_category === "cpu" && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="firmware_version">Firmware Version</Label>
+                    <Input
+                      id="firmware_version"
+                      value={form.firmware_version}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          firmware_version: e.target.value,
+                        }))
+                      }
+                      placeholder="V4.5"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="ip_address">IP Address</Label>
+                    <Input
+                      id="ip_address"
+                      value={form.ip_address}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, ip_address: e.target.value }))
+                      }
+                      placeholder="192.168.1.1"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
           <DialogFooter>
             <DialogClose asChild>
