@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import type { ReactNode } from "react";
 import { getDatabase } from "@/db/database";
+import type { PlcPlatform } from "@/lib/plc-address";
 
 export interface Project {
   id: number;
@@ -8,8 +9,21 @@ export interface Project {
   project_number: string;
   client: string | null;
   description: string | null;
+  plc_platform: PlcPlatform;
+  custom_address_prefix: string | null;
+  custom_address_pattern: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CreateProjectData {
+  name: string;
+  project_number: string;
+  client?: string;
+  description?: string;
+  plc_platform?: PlcPlatform;
+  custom_address_prefix?: string;
+  custom_address_pattern?: string;
 }
 
 interface ProjectContextValue {
@@ -17,12 +31,8 @@ interface ProjectContextValue {
   selectedProject: Project | null;
   selectProject: (id: number | null) => void;
   refreshProjects: () => Promise<void>;
-  createProject: (data: {
-    name: string;
-    project_number: string;
-    client?: string;
-    description?: string;
-  }) => Promise<void>;
+  createProject: (data: CreateProjectData) => Promise<void>;
+  updateProject: (id: number, data: Partial<CreateProjectData>) => Promise<void>;
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
@@ -40,17 +50,49 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createProject = useCallback(
-    async (data: {
-      name: string;
-      project_number: string;
-      client?: string;
-      description?: string;
-    }) => {
+    async (data: CreateProjectData) => {
       const db = await getDatabase();
       await db.execute(
-        `INSERT INTO projects (name, project_number, client, description)
-         VALUES ($1, $2, $3, $4)`,
-        [data.name, data.project_number, data.client ?? null, data.description ?? null]
+        `INSERT INTO projects (name, project_number, client, description, plc_platform, custom_address_prefix, custom_address_pattern)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          data.name,
+          data.project_number,
+          data.client ?? null,
+          data.description ?? null,
+          data.plc_platform ?? "siemens",
+          data.custom_address_prefix ?? null,
+          data.custom_address_pattern ?? null,
+        ]
+      );
+      await refreshProjects();
+    },
+    [refreshProjects]
+  );
+
+  const updateProject = useCallback(
+    async (id: number, data: Partial<CreateProjectData>) => {
+      const db = await getDatabase();
+      const fields: string[] = [];
+      const values: unknown[] = [];
+      let idx = 1;
+
+      if (data.name !== undefined) { fields.push(`name=$${idx++}`); values.push(data.name); }
+      if (data.project_number !== undefined) { fields.push(`project_number=$${idx++}`); values.push(data.project_number); }
+      if (data.client !== undefined) { fields.push(`client=$${idx++}`); values.push(data.client || null); }
+      if (data.description !== undefined) { fields.push(`description=$${idx++}`); values.push(data.description || null); }
+      if (data.plc_platform !== undefined) { fields.push(`plc_platform=$${idx++}`); values.push(data.plc_platform); }
+      if (data.custom_address_prefix !== undefined) { fields.push(`custom_address_prefix=$${idx++}`); values.push(data.custom_address_prefix || null); }
+      if (data.custom_address_pattern !== undefined) { fields.push(`custom_address_pattern=$${idx++}`); values.push(data.custom_address_pattern || null); }
+
+      if (fields.length === 0) return;
+
+      fields.push(`updated_at=datetime('now')`);
+      values.push(id);
+
+      await db.execute(
+        `UPDATE projects SET ${fields.join(", ")} WHERE id=$${idx}`,
+        values
       );
       await refreshProjects();
     },
@@ -75,6 +117,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         selectProject,
         refreshProjects,
         createProject,
+        updateProject,
       }}
     >
       {children}

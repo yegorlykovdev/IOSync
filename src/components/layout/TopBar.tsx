@@ -2,6 +2,7 @@ import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProject } from "@/contexts/ProjectContext";
 import { useTheme } from "@/hooks/useTheme";
+import { PLC_PLATFORM_LABELS } from "@/lib/plc-address";
 
 export function TopBar() {
   const { selectedProject } = useProject();
@@ -9,11 +10,14 @@ export function TopBar() {
 
   return (
     <header className="flex h-14 items-center justify-between border-b px-6">
-      <div className="text-sm font-medium text-muted-foreground">
+      <div className="flex items-center gap-3 text-sm font-medium text-muted-foreground">
         {selectedProject ? (
           <>
             <span className="text-foreground">{selectedProject.name}</span>
-            <span className="ml-2 text-xs">({selectedProject.project_number})</span>
+            <span className="text-xs">({selectedProject.project_number})</span>
+            <span className="inline-flex items-center rounded-md bg-secondary px-1.5 py-0.5 text-xs font-medium text-secondary-foreground">
+              {PLC_PLATFORM_LABELS[selectedProject.plc_platform]}
+            </span>
           </>
         ) : (
           "No project selected"

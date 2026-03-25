@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { useProject } from "@/contexts/ProjectContext";
 import { getDatabase } from "@/db/database";
+import {
+  computePlcAddress,
+  PLC_PLATFORM_LABELS,
+  type ChannelType,
+} from "@/lib/plc-address";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,15 +42,13 @@ interface PlcModule {
   slot: number;
   module_type: string;
   channels: number;
-  channel_type: "DI" | "DO" | "AI" | "AO";
+  channel_type: ChannelType;
   created_at: string;
 }
 
 interface ModuleUtilization extends PlcModule {
   used_channels: number;
 }
-
-type ChannelType = "DI" | "DO" | "AI" | "AO";
 
 const CHANNEL_TYPES: ChannelType[] = ["DI", "DO", "AI", "AO"];
 
@@ -86,36 +89,7 @@ const EMPTY_FORM: FormState = {
   channel_type: "DI",
 };
 
-function computePlcAddress(
-  rack: number,
-  slot: number,
-  channelType: ChannelType,
-  channelNumber: number
-): string {
-  const typeCode =
-    channelType === "DI"
-      ? "I"
-      : channelType === "DO"
-        ? "Q"
-        : channelType === "AI"
-          ? "IW"
-          : "QW";
-  const isAnalog = channelType === "AI" || channelType === "AO";
-  const rackOffset = rack * 128;
-  const byteOffset = isAnalog
-    ? rackOffset + slot * 16 + channelNumber * 2
-    : rackOffset + slot * 8;
-  const bitAddress = isAnalog ? "" : `.${channelNumber}`;
-  return `%${typeCode}${byteOffset}${bitAddress}`;
-}
-
-function UtilizationBar({
-  used,
-  total,
-}: {
-  used: number;
-  total: number;
-}) {
+function UtilizationBar({ used, total }: { used: number; total: number }) {
   const pct = total > 0 ? Math.round((used / total) * 100) : 0;
   return (
     <div className="flex items-center gap-2">
@@ -179,6 +153,24 @@ export function PlcHardwarePage() {
       </div>
     );
   }
+
+  const platform = selectedProject.plc_platform;
+  const customConfig = {
+    prefix: selectedProject.custom_address_prefix,
+    pattern: selectedProject.custom_address_pattern,
+  };
+
+  const formatAddress = (
+    rack: number,
+    slot: number,
+    channelType: ChannelType,
+    channelNumber: number
+  ) =>
+    computePlcAddress(
+      platform,
+      { rack, slot, channelType, channelNumber },
+      customConfig
+    );
 
   const openCreate = () => {
     setEditingId(null);
@@ -262,7 +254,6 @@ export function PlcHardwarePage() {
     !isNaN(parseInt(form.slot)) &&
     parseInt(form.channels) > 0;
 
-  // Summary counts
   const summary = modules.reduce(
     (acc, m) => {
       acc[m.channel_type] = (acc[m.channel_type] || 0) + m.channels;
@@ -275,7 +266,12 @@ export function PlcHardwarePage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">PLC Hardware</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold">PLC Hardware</h1>
+            <span className="inline-flex items-center rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
+              {PLC_PLATFORM_LABELS[platform]}
+            </span>
+          </div>
           {modules.length > 0 && (
             <div className="mt-1 flex gap-3">
               {CHANNEL_TYPES.map(
@@ -323,13 +319,13 @@ export function PlcHardwarePage() {
             </TableHeader>
             <TableBody>
               {modules.map((m) => {
-                const startAddr = computePlcAddress(
+                const startAddr = formatAddress(
                   m.rack,
                   m.slot,
                   m.channel_type,
                   0
                 );
-                const endAddr = computePlcAddress(
+                const endAddr = formatAddress(
                   m.rack,
                   m.slot,
                   m.channel_type,
@@ -337,7 +333,9 @@ export function PlcHardwarePage() {
                 );
                 return (
                   <TableRow key={m.id}>
-                    <TableCell className="font-medium">{m.plc_name}</TableCell>
+                    <TableCell className="font-medium">
+                      {m.plc_name}
+                    </TableCell>
                     <TableCell>{m.rack}</TableCell>
                     <TableCell>{m.slot}</TableCell>
                     <TableCell>{m.module_type}</TableCell>

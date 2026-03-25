@@ -12,15 +12,32 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Plus, Check } from "lucide-react";
+import {
+  PLC_PLATFORMS,
+  PLC_PLATFORM_LABELS,
+  exampleAddress,
+  type PlcPlatform,
+} from "@/lib/plc-address";
 
 export function ProjectsPage() {
-  const { projects, selectedProject, selectProject, createProject } = useProject();
+  const { projects, selectedProject, selectProject, createProject } =
+    useProject();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [projectNumber, setProjectNumber] = useState("");
   const [client, setClient] = useState("");
   const [description, setDescription] = useState("");
+  const [plcPlatform, setPlcPlatform] = useState<PlcPlatform>("siemens");
+  const [customPrefix, setCustomPrefix] = useState("");
+  const [customPattern, setCustomPattern] = useState("{TYPE}-{SEQ}");
 
   const handleCreate = async () => {
     if (!name.trim() || !projectNumber.trim()) return;
@@ -29,11 +46,19 @@ export function ProjectsPage() {
       project_number: projectNumber.trim(),
       client: client.trim() || undefined,
       description: description.trim() || undefined,
+      plc_platform: plcPlatform,
+      custom_address_prefix:
+        plcPlatform === "custom" ? customPrefix : undefined,
+      custom_address_pattern:
+        plcPlatform === "custom" ? customPattern : undefined,
     });
     setName("");
     setProjectNumber("");
     setClient("");
     setDescription("");
+    setPlcPlatform("siemens");
+    setCustomPrefix("");
+    setCustomPattern("{TYPE}-{SEQ}");
     setOpen(false);
   };
 
@@ -89,6 +114,58 @@ export function ProjectsPage() {
                   placeholder="Optional"
                 />
               </div>
+              <div className="grid gap-2">
+                <Label htmlFor="plc_platform">PLC Platform</Label>
+                <Select
+                  value={plcPlatform}
+                  onValueChange={(v) => setPlcPlatform(v as PlcPlatform)}
+                >
+                  <SelectTrigger id="plc_platform">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PLC_PLATFORMS.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {PLC_PLATFORM_LABELS[p]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Example address:{" "}
+                  <span className="font-mono">
+                    {exampleAddress(plcPlatform, {
+                      prefix: customPrefix,
+                      pattern: customPattern,
+                    })}
+                  </span>
+                </p>
+              </div>
+              {plcPlatform === "custom" && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="custom_prefix">Address Prefix</Label>
+                    <Input
+                      id="custom_prefix"
+                      value={customPrefix}
+                      onChange={(e) => setCustomPrefix(e.target.value)}
+                      placeholder="PLC1-"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="custom_pattern">Pattern</Label>
+                    <Input
+                      id="custom_pattern"
+                      value={customPattern}
+                      onChange={(e) => setCustomPattern(e.target.value)}
+                      placeholder="{TYPE}-{SEQ}"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {"{TYPE} {RACK} {SLOT} {CH} {SEQ}"}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <DialogClose asChild>
@@ -125,7 +202,12 @@ export function ProjectsPage() {
                 }`}
               >
                 <div>
-                  <div className="font-medium">{project.name}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{project.name}</span>
+                    <span className="inline-flex items-center rounded-md bg-secondary px-1.5 py-0.5 text-xs font-medium text-secondary-foreground">
+                      {PLC_PLATFORM_LABELS[project.plc_platform]}
+                    </span>
+                  </div>
                   <div className="mt-1 text-sm text-muted-foreground">
                     {project.project_number}
                     {project.client && ` · ${project.client}`}
