@@ -110,6 +110,7 @@ src/
     ProjectsPage.tsx         — Project list + create dialog (with platform selector)
     PlcHardwarePage.tsx      — PLC module CRUD + utilization + address display + module categories (IO/Comm/CPU)
     IoListPage.tsx           — IO List: TanStack Table data grid, inline editing, add/edit Sheet, column visibility, filtering
+    RevisionsPage.tsx        — Revision history: grouped timeline, filters, entity labels, navigation
     PlaceholderPage.tsx      — Stub for unbuilt pages
 src-tauri/
   src/lib.rs                 — Tauri commands (get_username, acquire_lock, release_lock) + plugins
@@ -185,6 +186,17 @@ src-tauri/
   - `changed_by` uses OS username from UserContext
   - Applied to all IO List operations: field edits, module assignment, channel changes, bulk set/clear/spare, single and bulk delete
   - Applied to PLC Hardware operations: create, edit, delete (including cascaded signal deletions)
+
+- 2.2 Revision History View — COMPLETE
+  - Timeline view with changes grouped by entity + timestamp + user
+  - Day headers with sticky date separators
+  - Human-readable descriptions ("Signal AI-101: Range Max changed from 100 to 150")
+  - Color-coded action badges (Created/Updated/Deleted) and entity badges (Signal/PLC Hardware)
+  - Entity labels resolved from DB (tag name for signals, module name for hardware)
+  - Filters: entity type, action type, user, free-text search
+  - Expandable field details for multi-field changes
+  - Click navigation to affected entity's page
+  - Pagination (30 events per page)
 
 ## Next Up
 

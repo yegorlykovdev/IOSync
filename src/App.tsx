@@ -9,6 +9,7 @@ import { ProjectsPage } from "./pages/ProjectsPage";
 import { PlcHardwarePage } from "./pages/PlcHardwarePage";
 import { IoListPage } from "./pages/IoListPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { RevisionsPage } from "./pages/RevisionsPage";
 import { useFileLock } from "./hooks/useFileLock";
 import "./App.css";
 
@@ -39,10 +40,7 @@ function AppRoutes() {
                 path="/panels"
                 element={<PlaceholderPage title="Panels" />}
               />
-              <Route
-                path="/revisions"
-                element={<PlaceholderPage title="Revisions" />}
-              />
+              <Route path="/revisions" element={<RevisionsPage />} />
               <Route path="*" element={<Navigate to="/projects" replace />} />
             </Route>
           </Routes>
