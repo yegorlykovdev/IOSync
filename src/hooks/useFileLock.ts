@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { appDataDir } from "@tauri-apps/api/path";
 
@@ -22,12 +22,14 @@ export function useFileLock() {
     lockedAt: null,
     dbPath: null,
   });
+  const dbPathRef = useRef<string | null>(null);
 
   const acquireLock = useCallback(async () => {
     try {
       const dataDir = await appDataDir();
       const dbPath = `${dataDir}iosync.db`;
       const result = await invoke<LockInfo>("acquire_lock", { dbPath });
+      dbPathRef.current = dbPath;
 
       setState({
         readOnly: result.locked,
@@ -44,21 +46,24 @@ export function useFileLock() {
   }, []);
 
   const releaseLock = useCallback(async () => {
-    if (!state.dbPath) return;
+    const dbPath = dbPathRef.current;
+    if (!dbPath) return;
     try {
-      await invoke("release_lock", { dbPath: state.dbPath });
+      await invoke("release_lock", { dbPath });
+      dbPathRef.current = null;
     } catch (err) {
       console.error("Failed to release lock:", err);
     }
-  }, [state.dbPath]);
+  }, []);
 
   // Acquire lock on mount, release on unmount
   useEffect(() => {
     acquireLock();
 
     const handleBeforeUnload = () => {
-      if (state.dbPath) {
-        invoke("release_lock", { dbPath: state.dbPath }).catch(() => {});
+      const dbPath = dbPathRef.current;
+      if (dbPath) {
+        invoke("release_lock", { dbPath }).catch(() => {});
       }
     };
     window.addEventListener("beforeunload", handleBeforeUnload);

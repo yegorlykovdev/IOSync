@@ -144,6 +144,7 @@ src-tauri/
   - OS username auto-detected via whoami crate, shown in top bar
   - File locking with .lock file for multi-user shared DB access
   - Read-only mode when another user holds the lock
+  - Lock release lifecycle fixed: unload/unmount cleanup now uses the live DB path instead of the initial null state snapshot
 - 1.2 IO List Entry & Editing — COMPLETE
   - Excel-style spreadsheet: all cells are live inputs/selects directly in the table (no separate form)
   - TanStack Table (`@tanstack/react-table`) data grid with 50+ columns
