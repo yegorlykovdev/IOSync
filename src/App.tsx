@@ -7,6 +7,7 @@ import { TooltipProvider } from "./components/ui/tooltip";
 import { AppLayout } from "./components/layout/AppLayout";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { PlcHardwarePage } from "./pages/PlcHardwarePage";
+import { IoListPage } from "./pages/IoListPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { useFileLock } from "./hooks/useFileLock";
 import "./App.css";
@@ -29,10 +30,7 @@ function AppRoutes() {
             >
               <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/plc-hardware" element={<PlcHardwarePage />} />
-              <Route
-                path="/io-list"
-                element={<PlaceholderPage title="IO List" />}
-              />
+              <Route path="/io-list" element={<IoListPage />} />
               <Route
                 path="/cables"
                 element={<PlaceholderPage title="Cables" />}

@@ -327,8 +327,28 @@ export function PlcHardwarePage() {
     await loadModules();
   };
 
+  const [deleteSignalCount, setDeleteSignalCount] = useState(0);
+
+  // When delete confirm opens, count connected signals
+  useEffect(() => {
+    if (deleteConfirmId == null) {
+      setDeleteSignalCount(0);
+      return;
+    }
+    (async () => {
+      const db = await getDatabase();
+      const result = await db.select<{ cnt: number }[]>(
+        `SELECT COUNT(*) as cnt FROM signals WHERE plc_hardware_id = $1`,
+        [deleteConfirmId]
+      );
+      setDeleteSignalCount(result[0]?.cnt ?? 0);
+    })();
+  }, [deleteConfirmId]);
+
   const handleDelete = async (id: number) => {
     const db = await getDatabase();
+    // Delete connected signals first
+    await db.execute("DELETE FROM signals WHERE plc_hardware_id = $1", [id]);
     await db.execute("DELETE FROM plc_hardware WHERE id = $1", [id]);
     setDeleteConfirmId(null);
     await loadModules();
@@ -771,10 +791,15 @@ export function PlcHardwarePage() {
           <DialogHeader>
             <DialogTitle>Delete Module</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            This will remove the module and unlink any signals assigned to it.
-            This action cannot be undone.
-          </p>
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p>This will permanently remove the module. This action cannot be undone.</p>
+            {deleteSignalCount > 0 && (
+              <p className="font-medium text-destructive">
+                {deleteSignalCount} signal{deleteSignalCount !== 1 ? "s" : ""} connected
+                to this module will also be deleted.
+              </p>
+            )}
+          </div>
           <DialogFooter>
             <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
