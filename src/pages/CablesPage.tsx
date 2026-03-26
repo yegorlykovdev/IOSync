@@ -790,19 +790,16 @@ export function CablesPage() {
           </DialogHeader>
           <div className="space-y-2 text-sm text-muted-foreground">
             <p>
-              This will scan all unassigned IO List signals and group them into
-              cable candidates by <strong>equipment name</strong> (extracted
-              from the signal description) and <strong>PLC Panel</strong>.
+              This will create <strong>one 3-core cable per hardwired signal</strong>{" "}
+              that has a tag name and is not a spare.
             </p>
             <p>
-              For example, "Chiller 2 - Setpoint" and "Chiller 2 - Feedback"
-              will be grouped into one cable for "Chiller 2". If a signal has
-              a Field Device Tag, that is used instead of the description.
+              Spare signals (no tag name, or "spare" in description) and
+              SoftComm signals are skipped. Signals already assigned to a
+              cable are also skipped, so this is safe to re-run.
             </p>
             <p>
-              Each cable gets the correct core count (including 20% spare cores,
-              rounded to standard sizes). Signals already assigned to a cable
-              are skipped, so this is safe to re-run.
+              After generation you can rearrange and group cables as needed.
             </p>
           </div>
           <DialogFooter>
@@ -825,15 +822,19 @@ export function CablesPage() {
           </DialogHeader>
           {generateResult && (
             <div className="space-y-1 text-sm">
-              <p><strong>{generateResult.cablesCreated}</strong> cable{generateResult.cablesCreated !== 1 ? "s" : ""} created</p>
-              <p><strong>{generateResult.coresCreated}</strong> core{generateResult.coresCreated !== 1 ? "s" : ""} created</p>
-              <p><strong>{generateResult.signalsLinked}</strong> signal{generateResult.signalsLinked !== 1 ? "s" : ""} linked to cables</p>
+              <p><strong>{generateResult.cablesCreated}</strong> cable{generateResult.cablesCreated !== 1 ? "s" : ""} created (3 cores each)</p>
+              <p><strong>{generateResult.signalsLinked}</strong> signal{generateResult.signalsLinked !== 1 ? "s" : ""} linked</p>
+              {generateResult.skippedSpare > 0 && (
+                <p className="text-muted-foreground">
+                  {generateResult.skippedSpare} spare/untagged signal{generateResult.skippedSpare !== 1 ? "s" : ""} skipped
+                </p>
+              )}
               {generateResult.skippedAlreadyAssigned > 0 && (
                 <p className="text-muted-foreground">
                   {generateResult.skippedAlreadyAssigned} signal{generateResult.skippedAlreadyAssigned !== 1 ? "s" : ""} already assigned — skipped
                 </p>
               )}
-              {generateResult.cablesCreated === 0 && (
+              {generateResult.cablesCreated === 0 && generateResult.skippedSpare === 0 && (
                 <p className="text-muted-foreground">
                   No unassigned signals found. All eligible signals already have cables.
                 </p>

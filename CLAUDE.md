@@ -215,13 +215,12 @@ src-tauri/
   - Add/Edit cable dialog with validation
 - 3.1b Cable Schedule Auto-Generation — COMPLETE
   - `src/lib/generate-cables.ts` — deterministic cable generation from IO List signals
-  - Groups signals by (plc_panel, equipment) where equipment is derived from:
-    1. `field_device_tag` if populated, else
-    2. Description prefix extracted before last separator (e.g. "Chiller 2 - Setpoint" → "Chiller 2")
-    3. Falls back to plc_panel-only grouping
-  - Core count per IO type: DI/DO=1, AI/AO=2, RTD=3, TC=2 cores per signal
-  - 20% spare cores (min 1), rounded up to standard cable sizes (2,3,4,5,7,10,12,15,19,24,27,30,37,44,50)
-  - Cable type derived from dominant IO type in group (Control, Instrumentation, RTD, Thermocouple, Communication)
+  - Simple rule: one 3-core cable per hardwired signal that has a tag name and is not spare
+  - Spare detection: is_spare flag, empty tag_name, or "spare" in description
+  - SoftComm signals excluded (no physical cable)
+  - Cable type from IO type: DI/DO→Control, AI/AO/RTD→Instrumentation, TC→Thermocouple
+  - Core 1 linked to signal, cores 2-3 labelled as spare
+  - Engineers rearrange/group cables after initial generation
   - Idempotent: only processes signals with cable_id IS NULL; safe to re-run
   - Deterministic sequential cable tags (CB-001, CB-002...) starting after highest existing
   - Creates cable_core rows with signal linkage + spare cores labeled
