@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useProject } from "@/contexts/ProjectContext";
 import { getDatabase } from "@/db/database";
 import { useTrackedUpdate } from "@/hooks/useTrackedUpdate";
+import { useUser } from "@/contexts/UserContext";
+import { handleCellKeyDown, useGridClipboard } from "@/hooks/useGridNav";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,7 +39,9 @@ import {
   ChevronDown,
   ChevronRight,
   Cable as CableIcon,
+  Zap,
 } from "lucide-react";
+import { generateCableSchedule, type GenerationResult } from "@/lib/generate-cables";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -124,6 +128,7 @@ interface SignalOption {
 
 export function CablesPage() {
   const { selectedProject, readOnly } = useProject();
+  const { username } = useUser();
   const { trackedCreate, trackedDelete, trackedUpdateFields } = useTrackedUpdate(selectedProject?.id);
   const [cables, setCables] = useState<Cable[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -135,6 +140,11 @@ export function CablesPage() {
   const [signals, setSignals] = useState<SignalOption[]>([]);
   const [searchFilter, setSearchFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const coreTableRef = useRef<HTMLTableElement>(null);
+  useGridClipboard(coreTableRef, readOnly);
+  const [generating, setGenerating] = useState(false);
+  const [generateConfirmOpen, setGenerateConfirmOpen] = useState(false);
+  const [generateResult, setGenerateResult] = useState<GenerationResult | null>(null);
 
   // ── Load data ──────────────────────────────────────────────────────
 
@@ -330,12 +340,23 @@ export function CablesPage() {
     [expandedId, loadCores]
   );
 
-  // ── Auto-create cables from signals ────────────────────────────────
-  // Since signals don't have cable_tag, this creates cables from signals
-  // that have cable_id NULL — allowing bulk cable assignment later.
-  // Actually, per the schema, signals link to cables via cable_id.
-  // The "auto-create" concept doesn't apply without cable_tag on signals.
-  // Instead we'll skip this feature as the schema doesn't support it.
+  // ── Generate cables from IO List ───────────────────────────────────
+
+  const handleGenerate = useCallback(async () => {
+    if (!selectedProject || generating) return;
+    setGenerating(true);
+    setGenerateConfirmOpen(false);
+    try {
+      const result = await generateCableSchedule(selectedProject.id, username);
+      setGenerateResult(result);
+      await loadCables();
+      await loadSignals();
+    } catch (err) {
+      console.error("Cable generation failed:", err);
+    } finally {
+      setGenerating(false);
+    }
+  }, [selectedProject, generating, username, loadCables, loadSignals]);
 
   // ── Filters ────────────────────────────────────────────────────────
 
@@ -412,6 +433,17 @@ export function CablesPage() {
             </SelectContent>
           </Select>
         )}
+
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 text-xs"
+          onClick={() => setGenerateConfirmOpen(true)}
+          disabled={readOnly || generating}
+        >
+          <Zap className="mr-1.5 h-3.5 w-3.5" />
+          {generating ? "Generating..." : "Generate from IO List"}
+        </Button>
 
         <Button size="sm" className="h-8 text-xs" onClick={openAddDialog} disabled={readOnly}>
           <Plus className="mr-1.5 h-3.5 w-3.5" />
@@ -517,7 +549,7 @@ export function CablesPage() {
                             No cores. {cable.core_count ? "Click edit and save to generate cores." : "Set core count to generate cores."}
                           </p>
                         ) : (
-                          <table className="w-full text-xs">
+                          <table ref={coreTableRef} className="w-full text-xs">
                             <thead>
                               <tr className="text-muted-foreground">
                                 <th className="w-[60px] pb-1 text-left font-medium">Core</th>
@@ -537,6 +569,7 @@ export function CablesPage() {
                                       className="h-6 w-full rounded border-0 bg-transparent text-xs outline-none focus:ring-1 focus:ring-ring"
                                       value={core.core_color ?? ""}
                                       onChange={(e) => updateCore(core.id, "core_color", e.target.value || null)}
+                                      onKeyDown={handleCellKeyDown}
                                       disabled={readOnly}
                                     >
                                       <option value="">—</option>
@@ -550,6 +583,7 @@ export function CablesPage() {
                                       className="h-6 w-full rounded border-0 bg-transparent text-xs outline-none focus:ring-1 focus:ring-ring"
                                       value={core.signal_id != null ? String(core.signal_id) : ""}
                                       onChange={(e) => updateCore(core.id, "signal_id", e.target.value ? parseInt(e.target.value) : null)}
+                                      onKeyDown={handleCellKeyDown}
                                       disabled={readOnly}
                                     >
                                       <option value="">— No signal —</option>
@@ -570,6 +604,7 @@ export function CablesPage() {
                                           prev.map((c) => c.id === core.id ? { ...c, from_terminal: e.target.value } : c)
                                         );
                                       }}
+                                      onKeyDown={handleCellKeyDown}
                                       disabled={readOnly}
                                     />
                                   </td>
@@ -583,6 +618,7 @@ export function CablesPage() {
                                           prev.map((c) => c.id === core.id ? { ...c, to_terminal: e.target.value } : c)
                                         );
                                       }}
+                                      onKeyDown={handleCellKeyDown}
                                       disabled={readOnly}
                                     />
                                   </td>
@@ -596,6 +632,7 @@ export function CablesPage() {
                                           prev.map((c) => c.id === core.id ? { ...c, notes: e.target.value } : c)
                                         );
                                       }}
+                                      onKeyDown={handleCellKeyDown}
                                       disabled={readOnly}
                                     />
                                   </td>
@@ -742,6 +779,71 @@ export function CablesPage() {
             >
               Delete
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Generate confirmation */}
+      <Dialog open={generateConfirmOpen} onOpenChange={setGenerateConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Generate Cables from IO List</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p>
+              This will scan all unassigned IO List signals and group them into
+              cable candidates by <strong>equipment name</strong> (extracted
+              from the signal description) and <strong>PLC Panel</strong>.
+            </p>
+            <p>
+              For example, "Chiller 2 - Setpoint" and "Chiller 2 - Feedback"
+              will be grouped into one cable for "Chiller 2". If a signal has
+              a Field Device Tag, that is used instead of the description.
+            </p>
+            <p>
+              Each cable gets the correct core count (including 20% spare cores,
+              rounded to standard sizes). Signals already assigned to a cable
+              are skipped, so this is safe to re-run.
+            </p>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button onClick={handleGenerate}>Generate</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Generation result */}
+      <Dialog
+        open={generateResult !== null}
+        onOpenChange={(open) => { if (!open) setGenerateResult(null); }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Generation Complete</DialogTitle>
+          </DialogHeader>
+          {generateResult && (
+            <div className="space-y-1 text-sm">
+              <p><strong>{generateResult.cablesCreated}</strong> cable{generateResult.cablesCreated !== 1 ? "s" : ""} created</p>
+              <p><strong>{generateResult.coresCreated}</strong> core{generateResult.coresCreated !== 1 ? "s" : ""} created</p>
+              <p><strong>{generateResult.signalsLinked}</strong> signal{generateResult.signalsLinked !== 1 ? "s" : ""} linked to cables</p>
+              {generateResult.skippedAlreadyAssigned > 0 && (
+                <p className="text-muted-foreground">
+                  {generateResult.skippedAlreadyAssigned} signal{generateResult.skippedAlreadyAssigned !== 1 ? "s" : ""} already assigned — skipped
+                </p>
+              )}
+              {generateResult.cablesCreated === 0 && (
+                <p className="text-muted-foreground">
+                  No unassigned signals found. All eligible signals already have cables.
+                </p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button>OK</Button>
+            </DialogClose>
           </DialogFooter>
         </DialogContent>
       </Dialog>

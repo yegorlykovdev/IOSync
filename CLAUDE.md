@@ -96,6 +96,7 @@ src/
     utils.ts                 — cn() utility for Tailwind class merging
     plc-address.ts           — Multi-platform PLC address formatter
     export-excel.ts          — IO List Excel export (exceljs + Tauri dialog/fs plugins)
+    generate-cables.ts       — Cable schedule auto-generation from IO List signals
   components/
     layout/                  — AppLayout, Sidebar, TopBar (shows user + lock status)
     ui/                      — shadcn/ui components
@@ -106,6 +107,7 @@ src/
     useTheme.ts              — Dark/light theme toggle
     useFileLock.ts           — Acquire/release .lock file via Rust commands
     useTrackedUpdate.ts      — Tracked DB writes with automatic revision logging
+    useGridNav.ts            — Spreadsheet-style keyboard navigation + copy/paste for table grids
   pages/
     ProjectsPage.tsx         — Project list + create dialog (with platform selector)
     PlcHardwarePage.tsx      — PLC module CRUD + utilization + address display + module categories (IO/Comm/CPU)
@@ -211,6 +213,35 @@ src-tauri/
   - Revision tracking on all cable and core operations via useTrackedUpdate
   - Read-only mode support (all edit controls disabled)
   - Add/Edit cable dialog with validation
+- 3.1b Cable Schedule Auto-Generation — COMPLETE
+  - `src/lib/generate-cables.ts` — deterministic cable generation from IO List signals
+  - Groups signals by (plc_panel, equipment) where equipment is derived from:
+    1. `field_device_tag` if populated, else
+    2. Description prefix extracted before last separator (e.g. "Chiller 2 - Setpoint" → "Chiller 2")
+    3. Falls back to plc_panel-only grouping
+  - Core count per IO type: DI/DO=1, AI/AO=2, RTD=3, TC=2 cores per signal
+  - 20% spare cores (min 1), rounded up to standard cable sizes (2,3,4,5,7,10,12,15,19,24,27,30,37,44,50)
+  - Cable type derived from dominant IO type in group (Control, Instrumentation, RTD, Thermocouple, Communication)
+  - Idempotent: only processes signals with cable_id IS NULL; safe to re-run
+  - Deterministic sequential cable tags (CB-001, CB-002...) starting after highest existing
+  - Creates cable_core rows with signal linkage + spare cores labeled
+  - Revision tracking on generated cables
+  - "Generate from IO List" button in Cables toolbar with confirmation dialog + result summary
+  - Respects read-only mode
+  - Fixed useTrackedUpdate to include cables table in updated_at handling
+
+**Spreadsheet Navigation & Clipboard — COMPLETE**
+- `src/hooks/useGridNav.ts` — shared hook for IO List and Cable Schedule tables
+- Arrow Up/Down: move between rows in same column (skips non-editable cells)
+- Tab/Shift+Tab: move to next/prev editable cell with row wrapping
+- Enter: commit and move down (replaces old bespoke Enter handler)
+- Ctrl+C: copies full cell value when no text selected; copies select option text
+- Ctrl+V single cell: native for inputs; matches option text for selects
+- Ctrl+V multi-cell: pastes tab/newline-separated rectangular range from focused cell
+- Applied to all IO List cell types (TextInputCell, SelectInputCell, ModuleSelectCell, inline selects)
+- Applied to Cable Schedule core mapping (color/signal selects, terminal/notes inputs)
+- Selection and copy work in read-only mode; paste disabled when locked
+- TextInputCell commit reads from DOM ref for paste compatibility
 
 ## Next Up
 

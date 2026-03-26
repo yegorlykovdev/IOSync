@@ -63,6 +63,7 @@ import {
 } from "lucide-react";
 import { exportIoListToExcel } from "@/lib/export-excel";
 import { useTrackedUpdate } from "@/hooks/useTrackedUpdate";
+import { handleCellKeyDown, useGridClipboard } from "@/hooks/useGridNav";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -381,7 +382,9 @@ function TextInputCell({ signal, field, onSave, disabled, errors }: CellProps & 
   }, [raw]);
 
   const commit = () => {
-    const trimmed = value.trim() || null;
+    // Read from DOM ref so programmatic paste (native setter) is picked up
+    const current = ref.current?.value ?? value;
+    const trimmed = current.trim() || null;
     if (trimmed !== (initial.trim() || null)) {
       onSave(signal.id, field, trimmed);
     }
@@ -402,21 +405,7 @@ function TextInputCell({ signal, field, onSave, disabled, errors }: CellProps & 
       value={value}
       onChange={(e) => setValue(e.target.value)}
       onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          commit();
-          const td = ref.current?.closest("td");
-          const cellIndex = td ? Array.from(td.parentElement!.children).indexOf(td) : -1;
-          const nextRow = td?.parentElement?.nextElementSibling;
-          if (nextRow && cellIndex >= 0) {
-            const nextInput = nextRow.children[cellIndex]?.querySelector("input,select") as HTMLElement;
-            nextInput?.focus();
-          }
-        }
-        if (e.key === "Tab") {
-          commit();
-        }
-      }}
+      onKeyDown={handleCellKeyDown}
       disabled={disabled}
       title={errors?.map((e) => e.message).join("; ")}
     />
@@ -437,6 +426,7 @@ function SelectInputCell({ signal, field, onSave, disabled, options, labels }: S
       className="h-7 w-full border-0 bg-transparent px-0.5 text-xs outline-none focus:bg-accent focus:ring-1 focus:ring-ring"
       value={current}
       onChange={(e) => onSave(signal.id, field, e.target.value || null)}
+      onKeyDown={handleCellKeyDown}
       disabled={disabled}
     >
       {options.map((o) => (
@@ -461,6 +451,7 @@ function ModuleSelectCell({ signal, modules, onModuleAssign, disabled }: ModuleC
       className="h-7 w-full border-0 bg-transparent px-0.5 text-xs outline-none focus:bg-accent focus:ring-1 focus:ring-ring"
       value={current}
       onChange={(e) => onModuleAssign(signal.id, e.target.value ? parseInt(e.target.value) : null)}
+      onKeyDown={handleCellKeyDown}
       disabled={disabled}
     >
       <option value="">—</option>
@@ -500,6 +491,7 @@ export function IoListPage() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [showErrorsOnly, setShowErrorsOnly] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  useGridClipboard(tableContainerRef, readOnly);
 
   useEffect(() => {
     localStorage.setItem("iosync-io-list-columns", JSON.stringify(columnVisibility));
@@ -1252,6 +1244,7 @@ export function IoListPage() {
                 const legacy = ["DI", "DO", "AI", "AO"].includes(e.target.value) ? e.target.value : "DI";
                 meta.updateField(row.original.id, "signal_type", legacy);
               }}
+              onKeyDown={handleCellKeyDown}
               disabled={meta.readOnly}
             >
               {IO_TYPES.map((t) => (
@@ -1281,6 +1274,7 @@ export function IoListPage() {
               className={`h-7 w-full border-0 bg-transparent px-0.5 text-xs outline-none focus:ring-1 focus:ring-ring ${hasErr ? "ring-red-500 bg-red-500/10" : ""}`}
               value={row.original.channel ?? ""}
               onChange={(e) => updateChannel(row.original.id, e.target.value || null)}
+              onKeyDown={handleCellKeyDown}
               disabled={meta.readOnly}
               title={errs?.map((e) => e.message).join("; ")}
             >

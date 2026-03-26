@@ -51,7 +51,7 @@ export function useTrackedUpdate(projectId: number | undefined) {
       const newStr = value != null ? String(value) : null;
 
       // Perform the update (only add updated_at if table has it)
-      const hasUpdatedAt = table === "signals" || table === "projects";
+      const hasUpdatedAt = table === "signals" || table === "projects" || table === "cables";
       const updatedAtClause = hasUpdatedAt ? `, updated_at = datetime('now')` : "";
       await db.execute(
         `UPDATE ${table} SET ${field} = $1${updatedAtClause} WHERE id = $2`,
@@ -87,7 +87,7 @@ export function useTrackedUpdate(projectId: number | undefined) {
 
       // Build SET clause
       const setClauses = fieldNames.map((f, i) => `${f} = $${i + 1}`);
-      const hasUpdatedAt = table === "signals" || table === "projects";
+      const hasUpdatedAt = table === "signals" || table === "projects" || table === "cables";
       if (hasUpdatedAt) {
         setClauses.push(`updated_at = datetime('now')`);
       }
