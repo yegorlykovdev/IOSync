@@ -152,10 +152,9 @@ src-tauri/
   - Text cells: native `<input>` with auto-save on blur, Enter moves to next row, Tab moves to next cell
   - Select cells: native `<select>` for IO type, signal type, Yes/N/A fields, severity, comms access/data type
   - **"Sync from Hardware" button** — auto-generates IO list rows from PLC hardware config:
-    - CPU modules → 1 row with N/A in signal fields
-    - Communication modules → 1 row with N/A, io_type=SoftComm, description shows protocol/IP
     - IO modules → 1 row per channel, pre-filled with io_type, rack/slot/channel, computed PLC address
     - Rows sorted by rack/slot/channel order; only adds missing rows (safe to re-run)
+    - CPU and communication modules stay in PLC Hardware only; they no longer generate placeholder signal rows that contaminate IO counts, export summaries, or cable generation
   - Module assignment dropdown (all module types) → auto-fills rack/slot/card/panel/IO type; channel dropdown for IO modules computes PLC address
   - "Add Row" inserts empty row; "Spare" adds pre-filled spare; "Copy Row" duplicates all fields
   - Signal types: DI, DO, AI, AO, RTD, TC, SoftComm

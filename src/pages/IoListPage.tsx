@@ -474,6 +474,12 @@ interface TableMeta {
   assignModule: (signalId: number, moduleId: number | null) => void;
 }
 
+function isNonIoHardwareShadowRow(signal: Signal, modules: PlcModule[]): boolean {
+  if (!signal.plc_hardware_id) return false;
+  const mod = modules.find((m) => m.id === signal.plc_hardware_id);
+  return !!mod && mod.module_category !== "io" && !signal.tag_name?.trim() && signal.channel == null;
+}
+
 // ── Main page ──────────────────────────────────────────────────────────
 
 export function IoListPage() {
@@ -546,12 +552,13 @@ export function IoListPage() {
     async (signalId: number, moduleId: number | null) => {
       const mod = moduleId ? modules.find((m) => m.id === moduleId) : null;
       const signal = signals.find((s) => s.id === signalId);
+      const isIoModule = mod?.module_category === "io";
 
       const rack = mod ? String(mod.rack) : null;
       const slot = mod ? String(mod.slot) : null;
       const card = mod ? mod.module_type : null;
       const panel = mod ? mod.plc_name : null;
-      const ioType = mod ? mod.channel_type : null;
+      const ioType = isIoModule ? mod.channel_type : signal?.io_type ?? "DI";
 
       const fields: Record<string, string | number | null> = {
         plc_hardware_id: moduleId,
@@ -559,7 +566,7 @@ export function IoListPage() {
         slot,
         card_part_number: card,
         plc_panel: signal?.plc_panel || panel,
-        io_type: ioType || signal?.io_type || "DI",
+        io_type: ioType,
         pre_assigned_address: null,
         channel: null,
       };
@@ -576,7 +583,7 @@ export function IoListPage() {
                 slot,
                 card_part_number: card,
                 plc_panel: s.plc_panel || panel,
-                io_type: (ioType as IoType) || s.io_type,
+                io_type: ioType as IoType,
                 pre_assigned_address: null,
                 channel: null,
               }
@@ -767,8 +774,13 @@ export function IoListPage() {
     return result;
   }, [signals, ioTypeFilter, panelFilter, showErrorsOnly, validation.errors]);
 
-  const signalCount = signals.length;
-  const spareCount = signals.filter((s) => s.is_spare).length;
+  const realSignals = useMemo(
+    () => signals.filter((s) => !isNonIoHardwareShadowRow(s, modules)),
+    [signals, modules]
+  );
+
+  const signalCount = realSignals.length;
+  const spareCount = realSignals.filter((s) => s.is_spare).length;
 
   // ── Bulk actions ────────────────────────────────────────────────────
 
@@ -890,7 +902,7 @@ export function IoListPage() {
     if (!selectedProject || exporting) return;
     setExporting(true);
     try {
-      await exportIoListToExcel(signals, modules, {
+      await exportIoListToExcel(realSignals, modules, {
         name: selectedProject.name,
         project_number: selectedProject.project_number,
         client: selectedProject.client,
@@ -901,7 +913,7 @@ export function IoListPage() {
     } finally {
       setExporting(false);
     }
-  }, [selectedProject, signals, modules, exporting]);
+  }, [selectedProject, realSignals, modules, exporting]);
 
   const syncFromHardware = useCallback(async () => {
     if (!selectedProject || syncing) return;
@@ -934,79 +946,33 @@ export function IoListPage() {
       let created = 0;
 
       for (const mod of modules) {
-        if (mod.module_category === "cpu") {
-          // CPU: 1 row if not already present
-          if (!existingSet.has(`${mod.id}:null`)) {
-            const desc = `CPU — ${mod.module_type}${mod.firmware_version ? ` (${mod.firmware_version})` : ""}`;
+        if (mod.module_category !== "io") continue;
+
+        // IO module: 1 row per channel
+        for (let ch = 0; ch < mod.channels; ch++) {
+          const chStr = String(ch);
+          if (!existingSet.has(`${mod.id}:${chStr}`)) {
+            const address = computePlcAddress(
+              selectedProject.plc_platform,
+              { rack: mod.rack, slot: mod.slot, channelType: mod.channel_type, channelNumber: ch },
+              customConfig
+            );
             await db.execute(
               `INSERT INTO signals (
                 project_id, item_number, plc_hardware_id, io_type, description,
-                rack, slot, card_part_number, plc_panel, sort_order,
-                signal_type, tag, channel, pre_assigned_address,
-                signal_low, signal_high, range_units,
-                history_enabled, alarm_point_activation
-              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,NULL,$13,$14,$15,$16,$17)`,
+                rack, slot, channel, card_part_number, plc_panel,
+                pre_assigned_address, sort_order, signal_type, tag
+              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
               [
-                selectedProject.id, nextNum, mod.id, "DI",
-                desc, String(mod.rack), String(mod.slot), mod.module_type,
-                mod.plc_name, nextNum,
-                "DI", desc,
-                "N/A", "N/A", "N/A", "N/A", "N/A",
+                selectedProject.id, nextNum, mod.id, mod.channel_type,
+                "", String(mod.rack), String(mod.slot), chStr,
+                mod.module_type, mod.plc_name, address, nextNum,
+                ["DI", "DO", "AI", "AO"].includes(mod.channel_type) ? mod.channel_type : "DI",
+                `${mod.plc_name}_R${mod.rack}S${mod.slot}_CH${chStr}`,
               ]
             );
             nextNum++;
             created++;
-          }
-        } else if (mod.module_category === "communication") {
-          // Comms: 1 row if not already present
-          if (!existingSet.has(`${mod.id}:null`)) {
-            const desc = `${mod.protocol ?? "Communication"} — ${mod.module_type}${mod.ip_address ? ` (${mod.ip_address})` : ""}`;
-            await db.execute(
-              `INSERT INTO signals (
-                project_id, item_number, plc_hardware_id, io_type, description,
-                rack, slot, card_part_number, plc_panel, sort_order,
-                signal_type, tag, channel, pre_assigned_address,
-                signal_low, signal_high, range_units,
-                history_enabled, alarm_point_activation
-              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,NULL,$13,$14,$15,$16,$17)`,
-              [
-                selectedProject.id, nextNum, mod.id, "SoftComm",
-                desc, String(mod.rack), String(mod.slot), mod.module_type,
-                mod.plc_name, nextNum,
-                "DI", desc,
-                "N/A", "N/A", "N/A", "N/A", "N/A",
-              ]
-            );
-            nextNum++;
-            created++;
-          }
-        } else {
-          // IO module: 1 row per channel
-          for (let ch = 0; ch < mod.channels; ch++) {
-            const chStr = String(ch);
-            if (!existingSet.has(`${mod.id}:${chStr}`)) {
-              const address = computePlcAddress(
-                selectedProject.plc_platform,
-                { rack: mod.rack, slot: mod.slot, channelType: mod.channel_type, channelNumber: ch },
-                customConfig
-              );
-              await db.execute(
-                `INSERT INTO signals (
-                  project_id, item_number, plc_hardware_id, io_type, description,
-                  rack, slot, channel, card_part_number, plc_panel,
-                  pre_assigned_address, sort_order, signal_type, tag
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-                [
-                  selectedProject.id, nextNum, mod.id, mod.channel_type,
-                  "", String(mod.rack), String(mod.slot), chStr,
-                  mod.module_type, mod.plc_name, address, nextNum,
-                  ["DI", "DO", "AI", "AO"].includes(mod.channel_type) ? mod.channel_type : "DI",
-                  `${mod.plc_name}_R${mod.rack}S${mod.slot}_CH${chStr}`,
-                ]
-              );
-              nextNum++;
-              created++;
-            }
           }
         }
       }
@@ -1514,7 +1480,7 @@ export function IoListPage() {
           size="sm"
           className="h-8 text-xs"
           onClick={handleExport}
-          disabled={exporting || signals.length === 0 || hasBlockingErrors}
+          disabled={exporting || realSignals.length === 0 || hasBlockingErrors}
           title={hasBlockingErrors ? "Fix errors before exporting" : "Export IO List to Excel"}
         >
           <Download className={`mr-1.5 h-3.5 w-3.5 ${exporting ? "animate-pulse" : ""}`} />

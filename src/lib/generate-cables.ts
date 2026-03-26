@@ -84,6 +84,8 @@ export async function generateCableSchedule(
      WHERE project_id = $1
        AND (is_spare = 0 OR is_spare IS NULL)
        AND io_type != 'SoftComm'
+       AND tag_name IS NOT NULL
+       AND TRIM(tag_name) != ''
        AND cable_id IS NULL
      ORDER BY sort_order, item_number, id`,
     [projectId]
@@ -94,7 +96,9 @@ export async function generateCableSchedule(
     `SELECT COUNT(*) as cnt FROM signals
      WHERE project_id = $1
        AND (is_spare = 0 OR is_spare IS NULL)
-       AND io_type != 'SoftComm'`,
+       AND io_type != 'SoftComm'
+       AND tag_name IS NOT NULL
+       AND TRIM(tag_name) != ''`,
     [projectId]
   );
   const skippedAlreadyAssigned = (totalRows[0]?.cnt ?? 0) - candidates.length;
