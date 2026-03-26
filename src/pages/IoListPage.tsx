@@ -487,7 +487,7 @@ interface TableMeta {
 
 export function IoListPage() {
   const { selectedProject, readOnly } = useProject();
-  const { trackedUpdateField, trackedUpdateFields, trackedDelete } = useTrackedUpdate(selectedProject?.id);
+  const { trackedUpdateField, trackedUpdateFields, trackedCreate, trackedDelete } = useTrackedUpdate(selectedProject?.id);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [modules, setModules] = useState<PlcModule[]>([]);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -650,11 +650,19 @@ export function IoListPage() {
       );
       const nextNum = (result[0]?.max_num ?? 0) + 1;
 
-      await db.execute(
+      const insertResult = await db.execute(
         `INSERT INTO signals (project_id, item_number, io_type, description, is_spare, sort_order, signal_type, tag)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [selectedProject.id, nextNum, "DI", spare ? "Spare" : "", spare ? 1 : 0, nextNum, "DI", spare ? "Spare" : "New"]
       );
+      if (insertResult.lastInsertId) {
+        await trackedCreate("signal", insertResult.lastInsertId, {
+          io_type: "DI",
+          description: spare ? "Spare" : "",
+          is_spare: spare ? 1 : 0,
+          item_number: nextNum,
+        });
+      }
       await loadSignals();
       // Scroll to bottom after adding
       setTimeout(() => {
@@ -663,7 +671,7 @@ export function IoListPage() {
         }
       }, 50);
     },
-    [selectedProject, loadSignals]
+    [selectedProject, loadSignals, trackedCreate]
   );
 
   // ── Copy row ───────────────────────────────────────────────────────
@@ -678,7 +686,7 @@ export function IoListPage() {
       );
       const nextNum = (result[0]?.max_num ?? 0) + 1;
 
-      await db.execute(
+      const insertResult = await db.execute(
         `INSERT INTO signals (
           project_id, item_number, plc_hardware_id, io_type, channel, tag_name,
           description, is_spare, signal_spec, plc_panel, signal_low, signal_high,
@@ -706,9 +714,16 @@ export function IoListPage() {
         FROM signals WHERE id = $2`,
         [nextNum, signal.id]
       );
+      if (insertResult.lastInsertId) {
+        await trackedCreate("signal", insertResult.lastInsertId, {
+          io_type: signal.io_type,
+          tag_name: signal.tag_name,
+          description: signal.description,
+        });
+      }
       await loadSignals();
     },
-    [selectedProject, loadSignals]
+    [selectedProject, loadSignals, trackedCreate]
   );
 
   // ── Delete ─────────────────────────────────────────────────────────

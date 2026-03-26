@@ -327,18 +327,15 @@ export function PlcHardwarePage() {
     if (editingId) {
       await trackedUpdateFields("plc_hardware", editingId, "plc_hardware", fieldValues);
     } else {
-      await db.execute(
+      const result = await db.execute(
         `INSERT INTO plc_hardware (project_id, plc_name, rack, slot, module_type, channels, channel_type,
              module_category, protocol, ip_address, port, baud_rate, station_address, firmware_version)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
         [selectedProject.id, ...params]
       );
-      // Log creation — get the new ID
-      const inserted = await db.select<{ id: number }[]>(
-        `SELECT last_insert_rowid() as id`
-      );
-      if (inserted[0]?.id) {
-        await trackedCreate("plc_hardware", inserted[0].id, fieldValues);
+      const newId = result.lastInsertId;
+      if (newId) {
+        await trackedCreate("plc_hardware", newId, fieldValues);
       }
     }
     setDialogOpen(false);
