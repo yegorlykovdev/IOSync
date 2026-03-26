@@ -58,7 +58,10 @@ import {
   RefreshCw,
   X,
   Eraser,
+  Download,
+  AlertTriangle,
 } from "lucide-react";
+import { exportIoListToExcel } from "@/lib/export-excel";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -175,6 +178,110 @@ interface PlcModule {
   firmware_version: string | null;
 }
 
+// ── Validation ────────────────────────────────────────────────────────
+
+type ValidationLevel = "error" | "warning";
+
+interface ValidationError {
+  signalId: number;
+  field: string;
+  level: ValidationLevel;
+  message: string;
+}
+
+/** Map of signalId → field → errors */
+type ValidationMap = Map<number, Map<string, ValidationError[]>>;
+
+function validateSignals(signals: Signal[], modules: PlcModule[]): { errors: ValidationError[]; map: ValidationMap } {
+  const errors: ValidationError[] = [];
+  const moduleMap = new Map(modules.map((m) => [m.id, m]));
+
+  // Duplicate tag detection (only non-empty, non-spare tags)
+  const tagCounts = new Map<string, number[]>();
+  for (const s of signals) {
+    if (s.tag_name && !s.is_spare) {
+      const key = s.tag_name.trim().toLowerCase();
+      if (key) {
+        const ids = tagCounts.get(key) ?? [];
+        ids.push(s.id);
+        tagCounts.set(key, ids);
+      }
+    }
+  }
+  for (const [, ids] of tagCounts) {
+    if (ids.length > 1) {
+      for (const id of ids) {
+        errors.push({ signalId: id, field: "tag_name", level: "error", message: "Duplicate tag name" });
+      }
+    }
+  }
+
+  // Duplicate PLC address detection (only non-empty addresses)
+  const addrCounts = new Map<string, number[]>();
+  for (const s of signals) {
+    if (s.pre_assigned_address) {
+      const key = s.pre_assigned_address.trim().toLowerCase();
+      if (key) {
+        const ids = addrCounts.get(key) ?? [];
+        ids.push(s.id);
+        addrCounts.set(key, ids);
+      }
+    }
+  }
+  for (const [, ids] of addrCounts) {
+    if (ids.length > 1) {
+      for (const id of ids) {
+        errors.push({ signalId: id, field: "pre_assigned_address", level: "error", message: "Duplicate PLC address" });
+      }
+    }
+  }
+
+  // Per-signal checks
+  for (const s of signals) {
+    if (s.is_spare) continue;
+
+    const mod = s.plc_hardware_id ? moduleMap.get(s.plc_hardware_id) : null;
+
+    // Channel exceeds module capacity
+    if (mod && mod.module_category === "io" && s.channel != null) {
+      const ch = parseInt(s.channel);
+      if (!isNaN(ch) && ch >= mod.channels) {
+        errors.push({
+          signalId: s.id, field: "channel", level: "error",
+          message: `Channel ${ch} exceeds module capacity (${mod.channels} channels)`,
+        });
+      }
+    }
+
+    // AI/AO without range
+    if ((s.io_type === "AI" || s.io_type === "AO") && !s.signal_low && !s.signal_high) {
+      errors.push({
+        signalId: s.id, field: "signal_low", level: "warning",
+        message: "Analog signal has no range defined",
+      });
+      errors.push({
+        signalId: s.id, field: "signal_high", level: "warning",
+        message: "Analog signal has no range defined",
+      });
+    }
+  }
+
+  // Build lookup map
+  const map: ValidationMap = new Map();
+  for (const e of errors) {
+    let fieldMap = map.get(e.signalId);
+    if (!fieldMap) {
+      fieldMap = new Map();
+      map.set(e.signalId, fieldMap);
+    }
+    const list = fieldMap.get(e.field) ?? [];
+    list.push(e);
+    fieldMap.set(e.field, list);
+  }
+
+  return { errors, map };
+}
+
 // ── Column group visibility ────────────────────────────────────────────
 
 interface ColumnGroup {
@@ -262,7 +369,7 @@ interface CellProps {
   disabled?: boolean;
 }
 
-function TextInputCell({ signal, field, onSave, disabled }: CellProps) {
+function TextInputCell({ signal, field, onSave, disabled, errors }: CellProps & { errors?: ValidationError[] }) {
   const raw = (signal as unknown as Record<string, unknown>)[field];
   const initial = raw != null ? String(raw) : "";
   const [value, setValue] = useState(initial);
@@ -279,17 +386,24 @@ function TextInputCell({ signal, field, onSave, disabled }: CellProps) {
     }
   };
 
+  const hasError = errors && errors.some((e) => e.level === "error");
+  const hasWarning = !hasError && errors && errors.length > 0;
+  const errorClass = hasError
+    ? "ring-1 ring-red-500 bg-red-500/10"
+    : hasWarning
+      ? "ring-1 ring-amber-500 bg-amber-500/10"
+      : "";
+
   return (
     <input
       ref={ref}
-      className="h-7 w-full border-0 bg-transparent px-1 text-xs outline-none focus:bg-accent focus:ring-1 focus:ring-ring"
+      className={`h-7 w-full border-0 bg-transparent px-1 text-xs outline-none focus:bg-accent focus:ring-1 focus:ring-ring ${errorClass}`}
       value={value}
       onChange={(e) => setValue(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           commit();
-          // Move to next row same column
           const td = ref.current?.closest("td");
           const cellIndex = td ? Array.from(td.parentElement!.children).indexOf(td) : -1;
           const nextRow = td?.parentElement?.nextElementSibling;
@@ -303,6 +417,7 @@ function TextInputCell({ signal, field, onSave, disabled }: CellProps) {
         }
       }}
       disabled={disabled}
+      title={errors?.map((e) => e.message).join("; ")}
     />
   );
 }
@@ -362,6 +477,7 @@ function ModuleSelectCell({ signal, modules, onModuleAssign, disabled }: ModuleC
 interface TableMeta {
   readOnly: boolean;
   modules: PlcModule[];
+  validationMap: ValidationMap;
   updateField: (signalId: number, field: string, value: string | null) => void;
   assignModule: (signalId: number, moduleId: number | null) => void;
 }
@@ -380,6 +496,7 @@ export function IoListPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [showErrorsOnly, setShowErrorsOnly] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -611,8 +728,23 @@ export function IoListPage() {
     return Array.from(panels).sort() as string[];
   }, [signals]);
 
+  // ── Validation ──────────────────────────────────────────────────────
+
+  const validation = useMemo(
+    () => validateSignals(signals, modules),
+    [signals, modules]
+  );
+
+  const errorCount = validation.errors.filter((e) => e.level === "error").length;
+  const warningCount = validation.errors.filter((e) => e.level === "warning").length;
+  const hasBlockingErrors = errorCount > 0;
+
   const filteredSignals = useMemo(() => {
     let result = signals;
+    if (showErrorsOnly) {
+      const idsWithErrors = new Set(validation.errors.map((e) => e.signalId));
+      result = result.filter((s) => idsWithErrors.has(s.id));
+    }
     if (ioTypeFilter !== "all") {
       result =
         ioTypeFilter === "spare"
@@ -623,7 +755,7 @@ export function IoListPage() {
       result = result.filter((s) => s.plc_panel === panelFilter);
     }
     return result;
-  }, [signals, ioTypeFilter, panelFilter]);
+  }, [signals, ioTypeFilter, panelFilter, showErrorsOnly, validation.errors]);
 
   const signalCount = signals.length;
   const spareCount = signals.filter((s) => s.is_spare).length;
@@ -745,6 +877,24 @@ export function IoListPage() {
   // ── Sync from Hardware ───────────────────────────────────────────────
 
   const [syncing, setSyncing] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = useCallback(async () => {
+    if (!selectedProject || exporting) return;
+    setExporting(true);
+    try {
+      await exportIoListToExcel(signals, modules, {
+        name: selectedProject.name,
+        project_number: selectedProject.project_number,
+        client: selectedProject.client,
+        plc_platform: selectedProject.plc_platform,
+      });
+    } catch (err) {
+      console.error("Export failed:", err);
+    } finally {
+      setExporting(false);
+    }
+  }, [selectedProject, signals, modules, exporting]);
 
   const syncFromHardware = useCallback(async () => {
     if (!selectedProject || syncing) return;
@@ -896,14 +1046,19 @@ export function IoListPage() {
     accessorKey: key,
     header,
     size,
-    cell: ({ row, table }) => (
-      <TextInputCell
-        signal={row.original}
-        field={key}
-        onSave={(table.options.meta as TableMeta).updateField}
-        disabled={(table.options.meta as TableMeta).readOnly}
-      />
-    ),
+    cell: ({ row, table }) => {
+      const meta = table.options.meta as TableMeta;
+      const errs = meta.validationMap.get(row.original.id)?.get(key);
+      return (
+        <TextInputCell
+          signal={row.original}
+          field={key}
+          onSave={meta.updateField}
+          disabled={meta.readOnly}
+          errors={errs}
+        />
+      );
+    },
   });
 
   const selectCol = (
@@ -1000,11 +1155,19 @@ export function IoListPage() {
         accessorKey: "pre_assigned_address",
         header: "Address",
         size: 90,
-        cell: ({ row }) => (
-          <span className="block px-1 font-mono text-xs text-muted-foreground">
-            {row.original.pre_assigned_address ?? ""}
-          </span>
-        ),
+        cell: ({ row, table }) => {
+          const errs = (table.options.meta as TableMeta).validationMap
+            .get(row.original.id)?.get("pre_assigned_address");
+          const hasErr = errs && errs.some((e) => e.level === "error");
+          return (
+            <span
+              className={`block px-1 font-mono text-xs text-muted-foreground ${hasErr ? "rounded ring-1 ring-red-500 bg-red-500/10" : ""}`}
+              title={errs?.map((e) => e.message).join("; ")}
+            >
+              {row.original.pre_assigned_address ?? ""}
+            </span>
+          );
+        },
       },
       // Module assignment (picks module → auto-fills rack/slot/card)
       {
@@ -1096,12 +1259,15 @@ export function IoListPage() {
             return <span className="block px-1 text-xs text-muted-foreground">—</span>;
           }
           const channelOptions = Array.from({ length: mod.channels }, (_, i) => String(i));
+          const errs = meta.validationMap.get(row.original.id)?.get("channel");
+          const hasErr = errs && errs.some((e) => e.level === "error");
           return (
             <select
-              className="h-7 w-full border-0 bg-transparent px-0.5 text-xs outline-none focus:ring-1 focus:ring-ring"
+              className={`h-7 w-full border-0 bg-transparent px-0.5 text-xs outline-none focus:ring-1 focus:ring-ring ${hasErr ? "ring-red-500 bg-red-500/10" : ""}`}
               value={row.original.channel ?? ""}
               onChange={(e) => updateChannel(row.original.id, e.target.value || null)}
               disabled={meta.readOnly}
+              title={errs?.map((e) => e.message).join("; ")}
             >
               <option value="">—</option>
               {channelOptions.map((ch) => (
@@ -1208,6 +1374,7 @@ export function IoListPage() {
     meta: {
       readOnly,
       modules,
+      validationMap: validation.map,
       updateField,
       assignModule,
     } satisfies TableMeta,
@@ -1246,6 +1413,19 @@ export function IoListPage() {
           {signalCount} signal{signalCount !== 1 && "s"}
           {spareCount > 0 && ` (${spareCount} spare)`}
         </Badge>
+
+        {errorCount > 0 && (
+          <Badge variant="destructive" className="text-xs">
+            <AlertTriangle className="mr-1 h-3 w-3" />
+            {errorCount} error{errorCount !== 1 && "s"}
+          </Badge>
+        )}
+        {warningCount > 0 && errorCount === 0 && (
+          <Badge variant="secondary" className="border-amber-500/50 bg-amber-500/10 text-xs text-amber-700 dark:text-amber-400">
+            <AlertTriangle className="mr-1 h-3 w-3" />
+            {warningCount} warning{warningCount !== 1 && "s"}
+          </Badge>
+        )}
 
         <div className="flex-1" />
 
@@ -1286,6 +1466,18 @@ export function IoListPage() {
           </Select>
         )}
 
+        {(errorCount > 0 || warningCount > 0) && (
+          <Button
+            variant={showErrorsOnly ? "destructive" : "outline"}
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => setShowErrorsOnly((v) => !v)}
+          >
+            <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
+            {showErrorsOnly ? "Show All" : "Errors Only"}
+          </Button>
+        )}
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="h-8 text-xs">
@@ -1307,6 +1499,18 @@ export function IoListPage() {
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs"
+          onClick={handleExport}
+          disabled={exporting || signals.length === 0 || hasBlockingErrors}
+          title={hasBlockingErrors ? "Fix errors before exporting" : "Export IO List to Excel"}
+        >
+          <Download className={`mr-1.5 h-3.5 w-3.5 ${exporting ? "animate-pulse" : ""}`} />
+          {exporting ? "Exporting…" : "Export"}
+        </Button>
 
         <Button
           variant="outline"
@@ -1496,11 +1700,15 @@ export function IoListPage() {
               ))}
             </TableHeader>
             <TableBody>
-              {table.getRowModel().rows.map((row) => (
+              {table.getRowModel().rows.map((row) => {
+                const rowErrors = validation.map.get(row.original.id);
+                const hasRowError = rowErrors && Array.from(rowErrors.values()).some((errs) => errs.some((e) => e.level === "error"));
+                const hasRowWarning = !hasRowError && rowErrors && rowErrors.size > 0;
+                return (
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() ? "selected" : undefined}
-                  className={`${row.original.is_spare ? "opacity-50" : ""} hover:bg-accent/30`}
+                  className={`${row.original.is_spare ? "opacity-50" : ""} hover:bg-accent/30 ${hasRowError ? "border-l-2 border-l-red-500" : hasRowWarning ? "border-l-2 border-l-amber-500" : ""}`}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell
@@ -1512,7 +1720,8 @@ export function IoListPage() {
                     </TableCell>
                   ))}
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </div>

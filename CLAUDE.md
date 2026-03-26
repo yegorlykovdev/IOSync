@@ -95,6 +95,7 @@ src/
   lib/
     utils.ts                 — cn() utility for Tailwind class merging
     plc-address.ts           — Multi-platform PLC address formatter
+    export-excel.ts          — IO List Excel export (exceljs + Tauri dialog/fs plugins)
   components/
     layout/                  — AppLayout, Sidebar, TopBar (shows user + lock status)
     ui/                      — shadcn/ui components
@@ -157,10 +158,24 @@ src-tauri/
   - **Bulk row actions** — checkbox column with select-all; when rows selected, toolbar shows: Delete selected (with confirmation), Set IO Type, Set Signal Type, Set PLC Panel, Mark as Spare, Clear field groups (Alarms, Historian, Responsibility, Legacy)
   - **Module deletion cascades to signals** — PLC Hardware delete dialog warns about and removes connected IO list signals
   - Migration 004 adds ~50 columns; uses `io_type` instead of old `signal_type`, `signal_spec` for signal specification, `tag_name` as single field
+- 1.3 IO List Excel Export — COMPLETE
+  - Export button in IO List toolbar using exceljs library
+  - Tauri save dialog for file path selection (`@tauri-apps/plugin-dialog` + `@tauri-apps/plugin-fs`)
+  - Sheet 1 "IO List": project header, frozen header row, all 50+ columns, color-coded IO types, alternate row shading, auto-filter, spare rows in italic gray
+  - Sheet 2 "IO Summary": counts by IO type (total/spare/active), module utilization table with color-coded percentages
+  - Suggested filename includes project name and export date
+
+- 1.4 Data Validation & Error Highlighting — COMPLETE
+  - Duplicate tag name detection (red highlight on affected cells)
+  - Duplicate PLC address detection (red highlight)
+  - Channel exceeds module capacity warning (red highlight on channel cell)
+  - AI/AO signals without range defined (amber warning on signal_low/signal_high)
+  - Error/warning count badges in toolbar
+  - "Errors Only" filter toggle to show only rows with validation issues
+  - Rows with errors get red left border; warnings get amber left border
+  - Export blocked when critical errors exist (button disabled with tooltip)
+  - Validation runs on every data change via useMemo
 
 ## Next Up
 
-**Phase 1 — IO List MVP** (continued, see `docs/EXECUTION-PLAN.md`)
-
-1. **1.3 IO List Excel Export** — .xlsx export with exceljs, formatted sheets for IO List + IO Summary
-2. **1.4 Data Validation** — Duplicate detection, capacity warnings, error highlighting, export blocking on critical errors
+**Phase 2 — Revision Tracking** (see `docs/EXECUTION-PLAN.md`)
