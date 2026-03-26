@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useProject } from "@/contexts/ProjectContext";
 import { getDatabase } from "@/db/database";
+import { useTrackedUpdate } from "@/hooks/useTrackedUpdate";
 import {
   computePlcAddress,
   PLC_PLATFORM_LABELS,
@@ -179,6 +180,7 @@ function UtilizationBar({ used, total }: { used: number; total: number }) {
 
 export function PlcHardwarePage() {
   const { selectedProject, readOnly } = useProject();
+  const { trackedCreate, trackedDelete, trackedUpdateFields } = useTrackedUpdate(selectedProject?.id);
   const [modules, setModules] = useState<ModuleUtilization[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -306,15 +308,24 @@ export function PlcHardwarePage() {
       form.firmware_version.trim() || null,
     ];
 
+    const fieldValues: Record<string, string | number | null> = {
+      plc_name: form.plc_name.trim(),
+      rack,
+      slot,
+      module_type: form.module_type,
+      channels,
+      channel_type: form.module_category === "io" ? form.channel_type : "DI",
+      module_category: form.module_category,
+      protocol: form.module_category === "communication" && form.protocol ? form.protocol : null,
+      ip_address: form.ip_address.trim() || null,
+      port: form.port ? parseInt(form.port) : null,
+      baud_rate: form.module_category === "communication" && form.baud_rate ? parseInt(form.baud_rate) : null,
+      station_address: form.module_category === "communication" && form.station_address ? parseInt(form.station_address) : null,
+      firmware_version: form.firmware_version.trim() || null,
+    };
+
     if (editingId) {
-      await db.execute(
-        `UPDATE plc_hardware
-         SET plc_name=$1, rack=$2, slot=$3, module_type=$4, channels=$5, channel_type=$6,
-             module_category=$7, protocol=$8, ip_address=$9, port=$10,
-             baud_rate=$11, station_address=$12, firmware_version=$13
-         WHERE id=$14`,
-        [...params, editingId]
-      );
+      await trackedUpdateFields("plc_hardware", editingId, "plc_hardware", fieldValues);
     } else {
       await db.execute(
         `INSERT INTO plc_hardware (project_id, plc_name, rack, slot, module_type, channels, channel_type,
@@ -322,6 +333,13 @@ export function PlcHardwarePage() {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
         [selectedProject.id, ...params]
       );
+      // Log creation — get the new ID
+      const inserted = await db.select<{ id: number }[]>(
+        `SELECT last_insert_rowid() as id`
+      );
+      if (inserted[0]?.id) {
+        await trackedCreate("plc_hardware", inserted[0].id, fieldValues);
+      }
     }
     setDialogOpen(false);
     await loadModules();
@@ -347,8 +365,16 @@ export function PlcHardwarePage() {
 
   const handleDelete = async (id: number) => {
     const db = await getDatabase();
-    // Delete connected signals first
+    // Log and delete connected signals first
+    const connectedSignals = await db.select<{ id: number }[]>(
+      `SELECT id FROM signals WHERE plc_hardware_id = $1`, [id]
+    );
+    for (const sig of connectedSignals) {
+      await trackedDelete("signal", sig.id, "signals");
+    }
     await db.execute("DELETE FROM signals WHERE plc_hardware_id = $1", [id]);
+    // Log and delete the module
+    await trackedDelete("plc_hardware", id, "plc_hardware");
     await db.execute("DELETE FROM plc_hardware WHERE id = $1", [id]);
     setDeleteConfirmId(null);
     await loadModules();

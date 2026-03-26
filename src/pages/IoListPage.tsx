@@ -62,6 +62,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { exportIoListToExcel } from "@/lib/export-excel";
+import { useTrackedUpdate } from "@/hooks/useTrackedUpdate";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -486,6 +487,7 @@ interface TableMeta {
 
 export function IoListPage() {
   const { selectedProject, readOnly } = useProject();
+  const { trackedUpdateField, trackedUpdateFields, trackedDelete } = useTrackedUpdate(selectedProject?.id);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [modules, setModules] = useState<PlcModule[]>([]);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -538,16 +540,12 @@ export function IoListPage() {
 
   const updateField = useCallback(
     async (signalId: number, field: string, value: string | null) => {
-      const db = await getDatabase();
-      await db.execute(
-        `UPDATE signals SET ${field} = $1, updated_at = datetime('now') WHERE id = $2`,
-        [value, signalId]
-      );
+      await trackedUpdateField("signal", signalId, "signals", field, value);
       setSignals((prev) =>
         prev.map((s) => (s.id === signalId ? { ...s, [field]: value } : s))
       );
     },
-    []
+    [trackedUpdateField]
   );
 
   // ── Assign module → auto-fill rack/slot/panel/address/card ─────────
@@ -555,7 +553,7 @@ export function IoListPage() {
   const assignModule = useCallback(
     async (signalId: number, moduleId: number | null) => {
       const mod = moduleId ? modules.find((m) => m.id === moduleId) : null;
-      const db = await getDatabase();
+      const signal = signals.find((s) => s.id === signalId);
 
       const rack = mod ? String(mod.rack) : null;
       const slot = mod ? String(mod.slot) : null;
@@ -563,13 +561,18 @@ export function IoListPage() {
       const panel = mod ? mod.plc_name : null;
       const ioType = mod ? mod.channel_type : null;
 
-      await db.execute(
-        `UPDATE signals SET plc_hardware_id=$1, rack=$2, slot=$3, card_part_number=$4,
-         plc_panel=COALESCE(plc_panel,$5), io_type=COALESCE($6,io_type),
-         pre_assigned_address=NULL, channel=NULL, updated_at=datetime('now')
-         WHERE id=$7`,
-        [moduleId, rack, slot, card, panel, ioType, signalId]
-      );
+      const fields: Record<string, string | number | null> = {
+        plc_hardware_id: moduleId,
+        rack,
+        slot,
+        card_part_number: card,
+        plc_panel: signal?.plc_panel || panel,
+        io_type: ioType || signal?.io_type || "DI",
+        pre_assigned_address: null,
+        channel: null,
+      };
+
+      await trackedUpdateFields("signal", signalId, "signals", fields);
 
       setSignals((prev) =>
         prev.map((s) =>
@@ -589,7 +592,7 @@ export function IoListPage() {
         )
       );
     },
-    [modules]
+    [modules, signals, trackedUpdateFields]
   );
 
   // ── Update channel → recompute address ─────────────────────────────
@@ -620,11 +623,10 @@ export function IoListPage() {
         );
       }
 
-      const db = await getDatabase();
-      await db.execute(
-        `UPDATE signals SET channel=$1, pre_assigned_address=$2, updated_at=datetime('now') WHERE id=$3`,
-        [channel, address, signalId]
-      );
+      await trackedUpdateFields("signal", signalId, "signals", {
+        channel,
+        pre_assigned_address: address,
+      });
       setSignals((prev) =>
         prev.map((s) =>
           s.id === signalId
@@ -633,7 +635,7 @@ export function IoListPage() {
         )
       );
     },
-    [signals, modules, selectedProject]
+    [signals, modules, selectedProject, trackedUpdateFields]
   );
 
   // ── Add new row ────────────────────────────────────────────────────
@@ -713,12 +715,13 @@ export function IoListPage() {
 
   const deleteRow = useCallback(
     async (id: number) => {
+      await trackedDelete("signal", id, "signals");
       const db = await getDatabase();
       await db.execute("DELETE FROM signals WHERE id = $1", [id]);
       setDeleteConfirmId(null);
       await loadSignals();
     },
-    [loadSignals]
+    [loadSignals, trackedDelete]
   );
 
   // ── Filters ────────────────────────────────────────────────────────
@@ -777,6 +780,9 @@ export function IoListPage() {
   const bulkDelete = useCallback(async () => {
     if (selectedSignalIds.length === 0) return;
     const db = await getDatabase();
+    for (const id of selectedSignalIds) {
+      await trackedDelete("signal", id, "signals");
+    }
     const placeholders = selectedSignalIds.map((_, i) => `$${i + 1}`).join(",");
     await db.execute(
       `DELETE FROM signals WHERE id IN (${placeholders})`,
@@ -785,21 +791,18 @@ export function IoListPage() {
     setRowSelection({});
     setBulkDeleteOpen(false);
     await loadSignals();
-  }, [selectedSignalIds, loadSignals]);
+  }, [selectedSignalIds, loadSignals, trackedDelete]);
 
   const bulkSetField = useCallback(
     async (field: string, value: string | null) => {
       if (selectedSignalIds.length === 0) return;
-      const db = await getDatabase();
       for (const id of selectedSignalIds) {
-        await db.execute(
-          `UPDATE signals SET ${field} = $1, updated_at = datetime('now') WHERE id = $2`,
-          [value, id]
-        );
+        await trackedUpdateField("signal", id, "signals", field, value);
       }
       // If setting io_type, also update legacy signal_type
       if (field === "io_type" && value) {
         const legacy = ["DI", "DO", "AI", "AO"].includes(value) ? value : "DI";
+        const db = await getDatabase();
         for (const id of selectedSignalIds) {
           await db.execute(
             `UPDATE signals SET signal_type = $1 WHERE id = $2`,
@@ -808,24 +811,25 @@ export function IoListPage() {
         }
       }
       setRowSelection({});
-
       await loadSignals();
     },
-    [selectedSignalIds, loadSignals]
+    [selectedSignalIds, loadSignals, trackedUpdateField]
   );
 
   const bulkMarkSpare = useCallback(async () => {
     if (selectedSignalIds.length === 0) return;
-    const db = await getDatabase();
     for (const id of selectedSignalIds) {
-      await db.execute(
-        `UPDATE signals SET is_spare = 1, description = 'Spare', tag = 'Spare', updated_at = datetime('now') WHERE id = $1`,
-        [id]
-      );
+      await trackedUpdateFields("signal", id, "signals", {
+        is_spare: 1,
+        description: "Spare",
+      });
+      // Also update legacy tag field (not tracked)
+      const db = await getDatabase();
+      await db.execute(`UPDATE signals SET tag = 'Spare' WHERE id = $1`, [id]);
     }
     setRowSelection({});
     await loadSignals();
-  }, [selectedSignalIds, loadSignals]);
+  }, [selectedSignalIds, loadSignals, trackedUpdateFields]);
 
   const CLEARABLE_GROUPS: { label: string; fields: string[] }[] = [
     {
@@ -859,19 +863,15 @@ export function IoListPage() {
   const bulkClearFields = useCallback(
     async (fields: string[]) => {
       if (selectedSignalIds.length === 0) return;
-      const db = await getDatabase();
-      const setClauses = fields.map((f) => `${f} = NULL`).join(", ");
+      const nullFields: Record<string, null> = {};
+      for (const f of fields) nullFields[f] = null;
       for (const id of selectedSignalIds) {
-        await db.execute(
-          `UPDATE signals SET ${setClauses}, updated_at = datetime('now') WHERE id = $1`,
-          [id]
-        );
+        await trackedUpdateFields("signal", id, "signals", nullFields);
       }
       setRowSelection({});
-
       await loadSignals();
     },
-    [selectedSignalIds, loadSignals]
+    [selectedSignalIds, loadSignals, trackedUpdateFields]
   );
 
   // ── Sync from Hardware ───────────────────────────────────────────────

@@ -105,6 +105,7 @@ src/
   hooks/
     useTheme.ts              — Dark/light theme toggle
     useFileLock.ts           — Acquire/release .lock file via Rust commands
+    useTrackedUpdate.ts      — Tracked DB writes with automatic revision logging
   pages/
     ProjectsPage.tsx         — Project list + create dialog (with platform selector)
     PlcHardwarePage.tsx      — PLC module CRUD + utilization + address display + module categories (IO/Comm/CPU)
@@ -176,6 +177,15 @@ src-tauri/
   - Export blocked when critical errors exist (button disabled with tooltip)
   - Validation runs on every data change via useMemo
 
+**Phase 2 — Revision Tracking: IN PROGRESS**
+- 2.1 Automatic Change Logging — COMPLETE
+  - `useTrackedUpdate` hook wraps all DB writes with revision logging
+  - Before each update, reads current values; logs changed fields to revisions table
+  - Tracks field-level updates, multi-field updates, creates, and deletes
+  - `changed_by` uses OS username from UserContext
+  - Applied to all IO List operations: field edits, module assignment, channel changes, bulk set/clear/spare, single and bulk delete
+  - Applied to PLC Hardware operations: create, edit, delete (including cascaded signal deletions)
+
 ## Next Up
 
-**Phase 2 — Revision Tracking** (see `docs/EXECUTION-PLAN.md`)
+**Phase 2 — Revision Tracking** (continued, see `docs/EXECUTION-PLAN.md`)
