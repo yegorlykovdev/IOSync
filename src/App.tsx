@@ -9,6 +9,7 @@ import { ProjectsPage } from "./pages/ProjectsPage";
 import { PlcHardwarePage } from "./pages/PlcHardwarePage";
 import { IoListPage } from "./pages/IoListPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { CablesPage } from "./pages/CablesPage";
 import { RevisionsPage } from "./pages/RevisionsPage";
 import { useFileLock } from "./hooks/useFileLock";
 import "./App.css";
@@ -32,10 +33,7 @@ function AppRoutes() {
               <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/plc-hardware" element={<PlcHardwarePage />} />
               <Route path="/io-list" element={<IoListPage />} />
-              <Route
-                path="/cables"
-                element={<PlaceholderPage title="Cables" />}
-              />
+              <Route path="/cables" element={<CablesPage />} />
               <Route
                 path="/panels"
                 element={<PlaceholderPage title="Panels" />}

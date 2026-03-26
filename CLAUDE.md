@@ -110,6 +110,7 @@ src/
     ProjectsPage.tsx         — Project list + create dialog (with platform selector)
     PlcHardwarePage.tsx      — PLC module CRUD + utilization + address display + module categories (IO/Comm/CPU)
     IoListPage.tsx           — IO List: TanStack Table data grid, inline editing, add/edit Sheet, column visibility, filtering
+    CablesPage.tsx           — Cable management with expandable core mapping, signal linking, revision tracking
     RevisionsPage.tsx        — Revision history: grouped timeline, filters, entity labels, navigation
     PlaceholderPage.tsx      — Stub for unbuilt pages
 src-tauri/
@@ -178,7 +179,7 @@ src-tauri/
   - Export blocked when critical errors exist (button disabled with tooltip)
   - Validation runs on every data change via useMemo
 
-**Phase 2 — Revision Tracking: IN PROGRESS**
+**Phase 2 — Revision Tracking: COMPLETE**
 - 2.1 Automatic Change Logging — COMPLETE
   - `useTrackedUpdate` hook wraps all DB writes with revision logging
   - Before each update, reads current values; logs changed fields to revisions table
@@ -198,6 +199,19 @@ src-tauri/
   - Click navigation to affected entity's page
   - Pagination (30 events per page)
 
+**Phase 3 — Cables & Panels: IN PROGRESS**
+- 3.1 Cable Management Page — COMPLETE
+  - Cable CRUD table with all fields: cable tag, type, core count, from/to location, from/to device, length, notes
+  - 8 cable types: Power, Control, Instrumentation, Communication, Fiber Optic, Coaxial, Ethernet, Other
+  - Click row to expand core mapping with inline editing (color, signal link, from/to terminal, notes)
+  - Auto-sync cores when core_count changes (adds/removes cores to match)
+  - Signal linking dropdown per core (from project signals)
+  - Connected signals count badge per cable
+  - Search and cable type filters
+  - Revision tracking on all cable and core operations via useTrackedUpdate
+  - Read-only mode support (all edit controls disabled)
+  - Add/Edit cable dialog with validation
+
 ## Next Up
 
-**Phase 2 — Revision Tracking** (continued, see `docs/EXECUTION-PLAN.md`)
+**Phase 3 — Cables & Panels** (continued, see `docs/EXECUTION-PLAN.md`)
