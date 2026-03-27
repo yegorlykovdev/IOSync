@@ -134,6 +134,7 @@ src-tauri/
 - 1.1 PLC Hardware Configuration — COMPLETE
   - PLC module CRUD (add/edit/delete) with table view
   - Channel utilization bars (used/total with color coding)
+  - Hardware utilization now counts only unique channels with real non-spare tag assignments; blank/generated rows and spares do not count as used
   - Multi-platform PLC address formatting (7 platforms)
   - Platform selector at project creation, displayed throughout UI
   - Module categories: IO Module, Communication Module, CPU/Processor
@@ -232,6 +233,7 @@ src-tauri/
 **Spreadsheet Navigation & Clipboard — COMPLETE**
 - `src/hooks/useGridNav.ts` — shared hook for IO List and Cable Schedule tables
 - Arrow Up/Down: move between rows in same column (skips non-editable cells)
+- Arrow Left/Right: move between editable cells when the caret is at the field boundary or the full cell is selected
 - Tab/Shift+Tab: move to next/prev editable cell with row wrapping
 - Enter: commit and move down (replaces old bespoke Enter handler)
 - Ctrl+C: copies full cell value when no text selected; copies select option text

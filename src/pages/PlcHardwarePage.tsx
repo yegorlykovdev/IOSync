@@ -195,8 +195,13 @@ export function PlcHardwarePage() {
               COALESCE(s.cnt, 0) as used_channels
        FROM plc_hardware h
        LEFT JOIN (
-         SELECT plc_hardware_id, COUNT(*) as cnt
+         SELECT plc_hardware_id, COUNT(DISTINCT channel) as cnt
          FROM signals
+         WHERE channel IS NOT NULL
+           AND TRIM(channel) != ''
+           AND (is_spare = 0 OR is_spare IS NULL)
+           AND tag_name IS NOT NULL
+           AND TRIM(tag_name) != ''
          GROUP BY plc_hardware_id
        ) s ON s.plc_hardware_id = h.id
        WHERE h.project_id = $1

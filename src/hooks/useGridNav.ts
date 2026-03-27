@@ -2,7 +2,7 @@
  * Spreadsheet-style keyboard navigation and clipboard for table grids.
  *
  * - handleCellKeyDown: call from onKeyDown on any input/select in a table cell.
- *   Handles ArrowUp, ArrowDown, Tab, Shift+Tab, Enter.
+ *   Handles ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Tab, Shift+Tab, Enter.
  *
  * - useGridClipboard: attach to a table container ref. Handles Ctrl+C (copy full
  *   cell value when nothing is selected) and Ctrl+V (single-cell native for inputs;
@@ -34,6 +34,26 @@ function cellIndex(td: Element): number {
 function focusEditable(el: HTMLInputElement | HTMLSelectElement) {
   el.focus();
   if (el instanceof HTMLInputElement) el.select();
+}
+
+function shouldMoveHorizontally(
+  direction: "left" | "right",
+  active: HTMLElement
+): boolean {
+  if (active instanceof HTMLSelectElement) return true;
+  if (!(active instanceof HTMLInputElement)) return false;
+
+  const { selectionStart, selectionEnd, value } = active;
+  if (selectionStart === null || selectionEnd === null) return false;
+
+  const fullySelected = selectionStart === 0 && selectionEnd === value.length;
+  if (fullySelected) return true;
+
+  if (direction === "left") {
+    return selectionStart === 0 && selectionEnd === 0;
+  }
+
+  return selectionStart === value.length && selectionEnd === value.length;
 }
 
 // ── Grid movement ───────────────────────────────────────────────────────
@@ -116,6 +136,16 @@ export function handleCellKeyDown(e: React.KeyboardEvent<HTMLElement>) {
     case "ArrowDown":
       if (active instanceof HTMLSelectElement) return;
       if (move("down", active)) e.preventDefault();
+      break;
+    case "ArrowLeft":
+      if (shouldMoveHorizontally("left", active) && move("left", active)) {
+        e.preventDefault();
+      }
+      break;
+    case "ArrowRight":
+      if (shouldMoveHorizontally("right", active) && move("right", active)) {
+        e.preventDefault();
+      }
       break;
     case "Tab":
       if (move(e.shiftKey ? "left" : "right", active)) e.preventDefault();
