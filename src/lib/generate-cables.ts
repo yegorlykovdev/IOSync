@@ -158,15 +158,15 @@ export async function generateCableSchedule(
 
     // Create 3 cable_core rows: core 1 linked to signal, cores 2-3 spare
     await db.execute(
-      `INSERT INTO cable_cores (cable_id, core_number, signal_id, notes) VALUES ($1, 1, $2, $3)`,
+      `INSERT INTO cable_cores (cable_id, core_number, signal_id, notes, assignment_type) VALUES ($1, 1, $2, $3, 'signal')`,
       [cableId, sig.id, sig.tag_name]
     );
     await db.execute(
-      `INSERT INTO cable_cores (cable_id, core_number, notes) VALUES ($1, 2, 'Spare')`,
+      `INSERT INTO cable_cores (cable_id, core_number, notes, assignment_type) VALUES ($1, 2, 'Spare', 'spare')`,
       [cableId]
     );
     await db.execute(
-      `INSERT INTO cable_cores (cable_id, core_number, notes) VALUES ($1, 3, 'Spare')`,
+      `INSERT INTO cable_cores (cable_id, core_number, notes, assignment_type) VALUES ($1, 3, 'Spare', 'spare')`,
       [cableId]
     );
     coresCreated += 3;

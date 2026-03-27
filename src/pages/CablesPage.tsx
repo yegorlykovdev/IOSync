@@ -32,6 +32,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
+import {
   Plus,
   Search,
   Pencil,
@@ -40,6 +46,8 @@ import {
   ChevronRight,
   Cable as CableIcon,
   Zap,
+  X,
+  Merge,
 } from "lucide-react";
 import { generateCableSchedule, type GenerationResult } from "@/lib/generate-cables";
 
@@ -67,6 +75,7 @@ interface CableCore {
   cable_id: number;
   core_number: number;
   core_color: string | null;
+  assignment_type: string;
   signal_id: number | null;
   from_terminal: string | null;
   to_terminal: string | null;
@@ -115,6 +124,15 @@ const CORE_COLORS = [
   "Brown/White", "Red/White", "Blue/White", "Green/White", "Shield",
 ];
 
+const ASSIGNMENT_TYPES = [
+  { value: "signal", label: "IO Signal" },
+  { value: "common", label: "Common" },
+  { value: "ground", label: "Ground" },
+  { value: "shield", label: "Shield" },
+  { value: "spare", label: "Spare" },
+  { value: "empty", label: "Empty" },
+];
+
 // ── Signal for linking ─────────────────────────────────────────────────
 
 interface SignalOption {
@@ -145,6 +163,35 @@ export function CablesPage() {
   const [generating, setGenerating] = useState(false);
   const [generateConfirmOpen, setGenerateConfirmOpen] = useState(false);
   const [generateResult, setGenerateResult] = useState<GenerationResult | null>(null);
+
+  // ── Selection ────────────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [mergeConfirmOpen, setMergeConfirmOpen] = useState(false);
+
+  const selectedCount = selectedIds.size;
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filtered.map((c) => c.id)));
+    }
+  };
+
+  // Clear selection when filters change
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [searchFilter, typeFilter]);
 
   // ── Load data ──────────────────────────────────────────────────────
 
@@ -297,17 +344,17 @@ export function CablesPage() {
     for (let i = 1; i <= targetCount; i++) {
       if (!existing.find((e) => e.core_number === i)) {
         await db.execute(
-          `INSERT INTO cable_cores (cable_id, core_number) VALUES ($1, $2)`,
+          `INSERT INTO cable_cores (cable_id, core_number, assignment_type) VALUES ($1, $2, 'empty')`,
           [cableId, i]
         );
       }
     }
 
-    // Remove excess cores (only ones with no signal attached)
+    // Remove excess empty cores (preserve cores with a real purpose)
     for (const e of existing) {
       if (e.core_number > targetCount) {
         await db.execute(
-          `DELETE FROM cable_cores WHERE id = $1 AND signal_id IS NULL`,
+          `DELETE FROM cable_cores WHERE id = $1 AND assignment_type = 'empty'`,
           [e.id]
         );
       }
@@ -340,6 +387,114 @@ export function CablesPage() {
     [expandedId, loadCores]
   );
 
+  const updateCoreAssignment = useCallback(
+    async (core: CableCore, newType: string) => {
+      const db = await getDatabase();
+      if (core.assignment_type === "signal" && newType !== "signal" && core.signal_id) {
+        // Changing away from signal: clear signal linkage
+        await db.execute(
+          `UPDATE signals SET cable_id = NULL, updated_at = datetime('now') WHERE id = $1`,
+          [core.signal_id]
+        );
+        await db.execute(
+          `UPDATE cable_cores SET assignment_type = $1, signal_id = NULL WHERE id = $2`,
+          [newType, core.id]
+        );
+      } else {
+        await db.execute(
+          `UPDATE cable_cores SET assignment_type = $1 WHERE id = $2`,
+          [newType, core.id]
+        );
+      }
+      if (expandedId) await loadCores(expandedId);
+      await loadCables();
+    },
+    [expandedId, loadCores, loadCables]
+  );
+
+  const updateCoreSignal = useCallback(
+    async (core: CableCore, newSignalId: number | null) => {
+      const db = await getDatabase();
+      // Unlink old signal
+      if (core.signal_id) {
+        await db.execute(
+          `UPDATE signals SET cable_id = NULL, updated_at = datetime('now') WHERE id = $1`,
+          [core.signal_id]
+        );
+      }
+      // Link new signal
+      if (newSignalId) {
+        await db.execute(
+          `UPDATE signals SET cable_id = $1, updated_at = datetime('now') WHERE id = $2`,
+          [core.cable_id, newSignalId]
+        );
+      }
+      await db.execute(
+        `UPDATE cable_cores SET signal_id = $1 WHERE id = $2`,
+        [newSignalId, core.id]
+      );
+      if (expandedId) await loadCores(expandedId);
+      await loadCables();
+      await loadSignals();
+    },
+    [expandedId, loadCores, loadCables, loadSignals]
+  );
+
+  const addCore = useCallback(
+    async (cableId: number) => {
+      const db = await getDatabase();
+      const maxRows = await db.select<{ mx: number | null }[]>(
+        `SELECT MAX(core_number) as mx FROM cable_cores WHERE cable_id = $1`,
+        [cableId]
+      );
+      const nextNum = (maxRows[0]?.mx ?? 0) + 1;
+      await db.execute(
+        `INSERT INTO cable_cores (cable_id, core_number, assignment_type) VALUES ($1, $2, 'empty')`,
+        [cableId, nextNum]
+      );
+      await db.execute(
+        `UPDATE cables SET core_count = (SELECT COUNT(*) FROM cable_cores WHERE cable_id = $1), updated_at = datetime('now') WHERE id = $1`,
+        [cableId]
+      );
+      await loadCores(cableId);
+      await loadCables();
+    },
+    [loadCores, loadCables]
+  );
+
+  const removeCore = useCallback(
+    async (core: CableCore) => {
+      const db = await getDatabase();
+      // Unlink signal if linked
+      if (core.signal_id) {
+        await db.execute(
+          `UPDATE signals SET cable_id = NULL, updated_at = datetime('now') WHERE id = $1`,
+          [core.signal_id]
+        );
+      }
+      await db.execute(`DELETE FROM cable_cores WHERE id = $1`, [core.id]);
+      // Renumber remaining cores sequentially
+      const remaining = await db.select<{ id: number }[]>(
+        `SELECT id FROM cable_cores WHERE cable_id = $1 ORDER BY core_number`,
+        [core.cable_id]
+      );
+      for (let i = 0; i < remaining.length; i++) {
+        await db.execute(
+          `UPDATE cable_cores SET core_number = $1 WHERE id = $2`,
+          [i + 1, remaining[i].id]
+        );
+      }
+      await db.execute(
+        `UPDATE cables SET core_count = $1, updated_at = datetime('now') WHERE id = $2`,
+        [remaining.length, core.cable_id]
+      );
+      await loadCores(core.cable_id);
+      await loadCables();
+      await loadSignals();
+    },
+    [loadCores, loadCables, loadSignals]
+  );
+
   // ── Generate cables from IO List ───────────────────────────────────
 
   const handleGenerate = useCallback(async () => {
@@ -357,6 +512,114 @@ export function CablesPage() {
       setGenerating(false);
     }
   }, [selectedProject, generating, username, loadCables, loadSignals]);
+
+  // ── Bulk actions ──────────────────────────────────────────────────
+
+  const bulkDelete = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    const db = await getDatabase();
+    for (const id of selectedIds) {
+      // Unlink signals that reference this cable
+      await db.execute(`UPDATE signals SET cable_id = NULL, updated_at = datetime('now') WHERE cable_id = $1`, [id]);
+      await trackedDelete("cable", id, "cables");
+      await db.execute("DELETE FROM cables WHERE id = $1", [id]);
+    }
+    setSelectedIds(new Set());
+    setBulkDeleteOpen(false);
+    if (expandedId && selectedIds.has(expandedId)) {
+      setExpandedId(null);
+      setCores([]);
+    }
+    await loadCables();
+    await loadSignals();
+  }, [selectedIds, expandedId, loadCables, loadSignals, trackedDelete]);
+
+  const bulkSetField = useCallback(
+    async (field: string, value: string | null) => {
+      if (selectedIds.size === 0) return;
+      for (const id of selectedIds) {
+        await trackedUpdateFields("cable", id, "cables", { [field]: value });
+      }
+      setSelectedIds(new Set());
+      await loadCables();
+    },
+    [selectedIds, loadCables, trackedUpdateFields]
+  );
+
+  /**
+   * Merge selected cables into one.
+   * Keeps the cable with the lowest tag, moves all cores/signals from the
+   * others into it, then deletes the empty cables.
+   */
+  const mergeCables = useCallback(async () => {
+    const ids = [...selectedIds];
+    if (ids.length < 2) return;
+    const db = await getDatabase();
+
+    // Pick target: cable with the lowest cable_tag among selected
+    const selected = cables.filter((c) => selectedIds.has(c.id));
+    selected.sort((a, b) => a.cable_tag.localeCompare(b.cable_tag));
+    const target = selected[0];
+    const sources = selected.slice(1);
+
+    // Find current max core_number in target
+    const maxCoreRows = await db.select<{ mx: number | null }[]>(
+      `SELECT MAX(core_number) as mx FROM cable_cores WHERE cable_id = $1`,
+      [target.id]
+    );
+    let nextCore = (maxCoreRows[0]?.mx ?? 0) + 1;
+
+    for (const src of sources) {
+      // Get all cores from source cable
+      const srcCores = await db.select<{ id: number; core_number: number; signal_id: number | null }[]>(
+        `SELECT id, core_number, signal_id FROM cable_cores WHERE cable_id = $1 ORDER BY core_number`,
+        [src.id]
+      );
+
+      // Move each core to target with renumbered core_number
+      for (const core of srcCores) {
+        await db.execute(
+          `UPDATE cable_cores SET cable_id = $1, core_number = $2 WHERE id = $3`,
+          [target.id, nextCore, core.id]
+        );
+        // Update signal linkage to point to target cable
+        if (core.signal_id) {
+          await db.execute(
+            `UPDATE signals SET cable_id = $1, updated_at = datetime('now') WHERE id = $2`,
+            [target.id, core.signal_id]
+          );
+        }
+        nextCore++;
+      }
+
+      // Delete the now-empty source cable
+      await trackedDelete("cable", src.id, "cables");
+      await db.execute("DELETE FROM cables WHERE id = $1", [src.id]);
+    }
+
+    // Update target cable's core_count
+    const newCoreCount = nextCore - 1;
+    await trackedUpdateFields("cable", target.id, "cables", { core_count: newCoreCount });
+
+    setSelectedIds(new Set());
+    setMergeConfirmOpen(false);
+    if (expandedId) {
+      await loadCores(expandedId);
+    }
+    await loadCables();
+    await loadSignals();
+  }, [selectedIds, cables, expandedId, loadCables, loadSignals, loadCores, trackedDelete, trackedUpdateFields]);
+
+  // Unique locations for bulk set dropdowns
+  const uniqueFromLocations = useMemo(() => {
+    const locs = new Set(cables.map((c) => c.from_location).filter(Boolean));
+    return [...locs].sort() as string[];
+  }, [cables]);
+
+  const uniqueToLocations = useMemo(() => {
+    const locs = new Set(cables.map((c) => c.to_location).filter(Boolean));
+    return [...locs].sort() as string[];
+  }, [cables]);
 
   // ── Filters ────────────────────────────────────────────────────────
 
@@ -451,6 +714,123 @@ export function CablesPage() {
         </Button>
       </div>
 
+      {/* Bulk action bar */}
+      {selectedCount > 0 && (
+        <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5">
+          <span className="text-xs font-medium">{selectedCount} selected</span>
+          <button
+            className="text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setSelectedIds(new Set())}
+          >
+            <X className="h-3 w-3" />
+          </button>
+
+          <div className="mx-1 h-4 w-px bg-border" />
+
+          {!readOnly && (
+            <>
+              {/* Merge */}
+              {selectedCount >= 2 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setMergeConfirmOpen(true)}
+                >
+                  <Merge className="mr-1 h-3 w-3" />
+                  Merge ({selectedCount})
+                </Button>
+              )}
+
+              {/* Set Cable Type */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-7 text-xs">
+                    Set Type
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  {CABLE_TYPES.map((t) => (
+                    <DropdownMenuCheckboxItem
+                      key={t}
+                      checked={false}
+                      onCheckedChange={() => bulkSetField("cable_type", t)}
+                    >
+                      {t}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* Set From Location */}
+              {uniqueFromLocations.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-7 text-xs">
+                      Set From
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    {uniqueFromLocations.map((l) => (
+                      <DropdownMenuCheckboxItem
+                        key={l}
+                        checked={false}
+                        onCheckedChange={() => bulkSetField("from_location", l)}
+                      >
+                        {l}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+
+              {/* Set To Location */}
+              {uniqueToLocations.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-7 text-xs">
+                      Set To
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    {uniqueToLocations.map((l) => (
+                      <DropdownMenuCheckboxItem
+                        key={l}
+                        checked={false}
+                        onCheckedChange={() => bulkSetField("to_location", l)}
+                      >
+                        {l}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+
+              {/* Clear Notes */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => bulkSetField("notes", null)}
+              >
+                Clear Notes
+              </Button>
+
+              {/* Delete */}
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setBulkDeleteOpen(true)}
+              >
+                <Trash2 className="mr-1 h-3 w-3" />
+                Delete
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Table */}
       {cables.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed p-12">
@@ -465,6 +845,14 @@ export function CablesPage() {
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-background">
               <TableRow>
+                <TableHead className="w-8 px-2 py-2">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 rounded border accent-primary"
+                    checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                    onChange={toggleSelectAll}
+                  />
+                </TableHead>
                 <TableHead className="w-8 px-2 py-2" />
                 <TableHead className="px-3 py-2 text-xs">Cable Tag</TableHead>
                 <TableHead className="px-3 py-2 text-xs">Type</TableHead>
@@ -482,9 +870,17 @@ export function CablesPage() {
                 <>
                   <TableRow
                     key={cable.id}
-                    className="cursor-pointer hover:bg-accent/30"
+                    className={`cursor-pointer hover:bg-accent/30 ${selectedIds.has(cable.id) ? "bg-accent/20" : ""}`}
                     onClick={() => toggleExpand(cable.id)}
                   >
+                    <TableCell className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 rounded border accent-primary"
+                        checked={selectedIds.has(cable.id)}
+                        onChange={() => toggleSelect(cable.id)}
+                      />
+                    </TableCell>
                     <TableCell className="px-2 py-1.5">
                       {expandedId === cable.id ? (
                         <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -543,27 +939,55 @@ export function CablesPage() {
                   {/* Expanded core mapping */}
                   {expandedId === cable.id && (
                     <TableRow key={`${cable.id}-cores`}>
-                      <TableCell colSpan={10} className="bg-muted/30 px-6 py-3">
+                      <TableCell colSpan={11} className="bg-muted/30 px-6 py-3">
                         {cores.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">
-                            No cores. {cable.core_count ? "Click edit and save to generate cores." : "Set core count to generate cores."}
-                          </p>
+                          <div className="flex items-center gap-3">
+                            <p className="text-xs text-muted-foreground">No cores defined.</p>
+                            {!readOnly && (
+                              <button
+                                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                                onClick={() => addCore(cable.id)}
+                              >
+                                <Plus className="h-3 w-3" />
+                                Add Core
+                              </button>
+                            )}
+                          </div>
                         ) : (
+                          <>
                           <table ref={coreTableRef} className="w-full text-xs">
                             <thead>
                               <tr className="text-muted-foreground">
-                                <th className="w-[60px] pb-1 text-left font-medium">Core</th>
+                                <th className="w-[50px] pb-1 text-left font-medium">Core</th>
                                 <th className="w-[100px] pb-1 text-left font-medium">Color</th>
+                                <th className="w-[110px] pb-1 text-left font-medium">Purpose</th>
                                 <th className="w-[180px] pb-1 text-left font-medium">Signal</th>
-                                <th className="w-[120px] pb-1 text-left font-medium">From Terminal</th>
-                                <th className="w-[120px] pb-1 text-left font-medium">To Terminal</th>
+                                <th className="w-[110px] pb-1 text-left font-medium">From Terminal</th>
+                                <th className="w-[110px] pb-1 text-left font-medium">To Terminal</th>
                                 <th className="pb-1 text-left font-medium">Notes</th>
+                                {!readOnly && <th className="w-[32px] pb-1" />}
                               </tr>
                             </thead>
                             <tbody>
                               {cores.map((core) => (
                                 <tr key={core.id} className="border-t border-border/50">
-                                  <td className="py-1 font-mono">{core.core_number}</td>
+                                  <td className="py-1">
+                                    <input
+                                      type="number"
+                                      className="h-6 w-[46px] rounded border-0 bg-transparent px-1 text-xs font-mono outline-none focus:ring-1 focus:ring-ring"
+                                      value={core.core_number}
+                                      onChange={(e) => {
+                                        const v = parseInt(e.target.value) || 0;
+                                        setCores((prev) =>
+                                          prev.map((c) => c.id === core.id ? { ...c, core_number: v } : c)
+                                        );
+                                      }}
+                                      onBlur={(e) => updateCore(core.id, "core_number", parseInt(e.target.value) || 1)}
+                                      onKeyDown={handleCellKeyDown}
+                                      disabled={readOnly}
+                                      min={1}
+                                    />
+                                  </td>
                                   <td className="py-1">
                                     <select
                                       className="h-6 w-full rounded border-0 bg-transparent text-xs outline-none focus:ring-1 focus:ring-ring"
@@ -581,13 +1005,26 @@ export function CablesPage() {
                                   <td className="py-1">
                                     <select
                                       className="h-6 w-full rounded border-0 bg-transparent text-xs outline-none focus:ring-1 focus:ring-ring"
-                                      value={core.signal_id != null ? String(core.signal_id) : ""}
-                                      onChange={(e) => updateCore(core.id, "signal_id", e.target.value ? parseInt(e.target.value) : null)}
+                                      value={core.assignment_type}
+                                      onChange={(e) => updateCoreAssignment(core, e.target.value)}
                                       onKeyDown={handleCellKeyDown}
                                       disabled={readOnly}
                                     >
-                                      <option value="">— No signal —</option>
-                                      {signals.map((s) => (
+                                      {ASSIGNMENT_TYPES.map((t) => (
+                                        <option key={t.value} value={t.value}>{t.label}</option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                  <td className="py-1">
+                                    <select
+                                      className="h-6 w-full rounded border-0 bg-transparent text-xs outline-none focus:ring-1 focus:ring-ring disabled:opacity-40"
+                                      value={core.assignment_type === "signal" && core.signal_id != null ? String(core.signal_id) : ""}
+                                      onChange={(e) => updateCoreSignal(core, e.target.value ? parseInt(e.target.value) : null)}
+                                      onKeyDown={handleCellKeyDown}
+                                      disabled={readOnly || core.assignment_type !== "signal"}
+                                    >
+                                      <option value="">{core.assignment_type === "signal" ? "— No signal —" : "—"}</option>
+                                      {core.assignment_type === "signal" && signals.map((s) => (
                                         <option key={s.id} value={String(s.id)}>
                                           {s.tag_name || `${s.io_type} #${s.item_number ?? s.id}`}
                                         </option>
@@ -636,10 +1073,31 @@ export function CablesPage() {
                                       disabled={readOnly}
                                     />
                                   </td>
+                                  {!readOnly && (
+                                    <td className="py-1">
+                                      <button
+                                        className="rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                        onClick={() => removeCore(core)}
+                                        title="Remove core"
+                                      >
+                                        <X className="h-3.5 w-3.5" />
+                                      </button>
+                                    </td>
+                                  )}
                                 </tr>
                               ))}
                             </tbody>
                           </table>
+                          {!readOnly && (
+                            <button
+                              className="mt-2 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                              onClick={() => addCore(cable.id)}
+                            >
+                              <Plus className="h-3 w-3" />
+                              Add Core
+                            </button>
+                          )}
+                          </>
                         )}
                       </TableCell>
                     </TableRow>
@@ -845,6 +1303,57 @@ export function CablesPage() {
             <DialogClose asChild>
               <Button>OK</Button>
             </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk delete confirmation */}
+      <Dialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selectedCount} Cable{selectedCount !== 1 ? "s" : ""}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently delete {selectedCount} cable{selectedCount !== 1 ? "s" : ""} and
+            all their core mappings. Linked signals will be unlinked. This action cannot be undone.
+          </p>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button variant="destructive" onClick={bulkDelete}>
+              Delete {selectedCount} Cable{selectedCount !== 1 ? "s" : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Merge confirmation */}
+      <Dialog open={mergeConfirmOpen} onOpenChange={setMergeConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Merge {selectedCount} Cables</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p>
+              This will merge all signals and cores from the selected cables into
+              the cable with the lowest tag ({cables
+                .filter((c) => selectedIds.has(c.id))
+                .sort((a, b) => a.cable_tag.localeCompare(b.cable_tag))[0]?.cable_tag ?? "—"}).
+            </p>
+            <p>
+              The other {selectedCount - 1} cable{selectedCount - 1 !== 1 ? "s" : ""} will
+              be deleted after their cores are moved. This action cannot be undone.
+            </p>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button onClick={mergeCables}>
+              <Merge className="mr-1.5 h-3.5 w-3.5" />
+              Merge
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

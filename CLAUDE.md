@@ -59,6 +59,8 @@ Desktop app for control engineers to manage IO Lists, Cable Schedules, and Panel
 
 Note: The original `signal_type` (CHECK DI/DO/AI/AO) and `tag` (NOT NULL) columns from migration 001 are kept for backward compat. New code uses `io_type` and `tag_name` instead. `signal_spec` holds the signal specification ("24V DC", "4-20mA", etc.).
 
+**005_cable_core_assignment:** Adds `assignment_type` (signal/common/ground/shield/spare/empty) to cable_cores. Backfills existing rows from signal_id and notes.
+
 All tables have foreign keys with CASCADE/SET NULL and indexes on `project_id` + frequently queried columns.
 
 ## PLC Platform Support
@@ -229,6 +231,29 @@ src-tauri/
   - "Generate from IO List" button in Cables toolbar with confirmation dialog + result summary
   - Respects read-only mode
   - Fixed useTrackedUpdate to include cables table in updated_at handling
+
+- 3.1c Cable Schedule Bulk Actions & Merge — COMPLETE
+  - Row selection with checkbox column and select-all toggle
+  - Bulk action toolbar appears when rows selected: Set Type, Set From Location, Set To Location, Clear Notes, Delete, Merge
+  - Bulk delete with confirmation dialog — unlinks signals (sets cable_id NULL), tracked deletes cores and cables
+  - Bulk set field applies tracked updates to all selected cables
+  - **Merge operation**: combines selected cables into one — moves cores from source cables into target (lowest cable tag), renumbers cores sequentially, preserves signal linkage, deletes empty source cables, updates target core_count
+  - Confirmation dialogs for merge and bulk delete with cable count
+  - All operations respect read-only mode and use revision tracking
+
+- 3.1d Cable Core/Wire Customization — COMPLETE
+  - Migration 005 adds `assignment_type` column to cable_cores (signal/common/ground/shield/spare/empty)
+  - Backfills existing rows: signal-linked cores → 'signal', spare-noted cores → 'spare', rest → 'empty'
+  - Per-core purpose/assignment type via dropdown: IO Signal, Common, Ground, Shield, Spare, Empty
+  - Signal dropdown only enabled when purpose is "IO Signal"; disabled for other purposes
+  - Proper signal linkage management: changing away from IO Signal clears signal_id and signals.cable_id
+  - Add Core button (below core table and in empty state) — appends new empty core, updates cable.core_count
+  - Remove Core button per row (X icon) — deletes core, renumbers remaining sequentially, updates cable.core_count
+  - Core number editable via inline number input
+  - syncCores only removes excess cores with 'empty' assignment (preserves cores with purpose)
+  - generate-cables.ts sets assignment_type: 'signal' for core 1, 'spare' for cores 2-3
+  - Read-only mode hides add/remove buttons; disables all core edits
+  - Spreadsheet keyboard navigation preserved on all new fields
 
 **Spreadsheet Navigation & Clipboard — COMPLETE**
 - `src/hooks/useGridNav.ts` — shared hook for IO List and Cable Schedule tables
