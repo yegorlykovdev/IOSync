@@ -318,6 +318,7 @@ src-tauri/
   - PanelsPage click navigates to workspace (with chevron indicator)
   - Back button returns to panels list
   - Panel Drawing placeholder with future-update message
+  - Panel-scoped find and replace in workspace header: replaces repeated engineering text only within the selected panel, with field selection, preview counts, and tracked updates for IO List tags/descriptions plus cable tags, locations, devices, and notes
 
 - 4.7 Panel-First Navigation — COMPLETE
   - Sidebar simplified to 3 items: Projects, Panels, Revisions
