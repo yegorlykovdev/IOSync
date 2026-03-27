@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useProject } from "@/contexts/ProjectContext";
 import { usePanel } from "@/contexts/PanelContext";
 import { getDatabase } from "@/db/database";
@@ -387,12 +387,25 @@ export function PlcHardwarePage() {
     await loadModules();
   };
 
+  // Check if rack/slot is already occupied by another module in this panel
+  const slotConflict = useMemo(() => {
+    const rack = parseInt(form.rack);
+    const slot = parseInt(form.slot);
+    if (isNaN(rack) || isNaN(slot)) return null;
+    const conflict = modules.find(
+      (m) => m.rack === rack && m.slot === slot && m.id !== editingId
+    );
+    if (!conflict) return null;
+    return `Rack ${rack} / Slot ${slot} is already occupied by "${conflict.plc_name}" in this panel.`;
+  }, [form.rack, form.slot, modules, editingId]);
+
   const isFormValid =
     form.plc_name.trim() &&
     form.module_type &&
     !isNaN(parseInt(form.rack)) &&
     !isNaN(parseInt(form.slot)) &&
-    (form.module_category !== "io" || parseInt(form.channels) > 0);
+    (form.module_category !== "io" || parseInt(form.channels) > 0) &&
+    !slotConflict;
 
   const ioModules = modules.filter((m) => (m.module_category || "io") === "io");
 
@@ -626,6 +639,9 @@ export function PlcHardwarePage() {
                 />
               </div>
             </div>
+            {slotConflict && (
+              <p className="text-xs text-destructive">{slotConflict}</p>
+            )}
             <div className="grid gap-2">
               <Label htmlFor="module_type">Module Type</Label>
               <Select

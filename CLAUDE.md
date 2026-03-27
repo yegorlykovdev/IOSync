@@ -65,6 +65,8 @@ Note: The original `signal_type` (CHECK DI/DO/AI/AO) and `tag` (NOT NULL) column
 
 **007_panel_scope_hardware:** Adds `panel_id` (FK to panels, ON DELETE SET NULL) to plc_hardware table with index.
 
+**008_unique_rack_slot_per_panel:** Adds partial unique index `(panel_id, rack, slot) WHERE panel_id IS NOT NULL` on plc_hardware — prevents duplicate rack/slot within the same panel.
+
 All tables have foreign keys with CASCADE/SET NULL and indexes on `project_id` + frequently queried columns.
 
 ## PLC Platform Support
@@ -150,6 +152,7 @@ src-tauri/
   - Conditional form fields per category (protocol/IP/baud for comms, firmware/IP for CPU)
   - Non-IO modules show protocol/IP instead of channel info in table
   - Only IO modules contribute to channel summary and utilization
+  - Rack/slot uniqueness validation per panel: form-level check + DB unique index (migration 008) prevents duplicate placement
 - 1.1c User Identification & File Locking — COMPLETE
   - OS username auto-detected via whoami crate, shown in top bar
   - File locking with .lock file for multi-user shared DB access
