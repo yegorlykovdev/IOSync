@@ -198,33 +198,28 @@ export function CablesPage() {
   // ── Load data ──────────────────────────────────────────────────────
 
   const loadCables = useCallback(async () => {
-    if (!selectedProject) return;
+    if (!selectedProject || !selectedPanel) { setCables([]); return; }
     const db = await getDatabase();
-    let query = `SELECT c.*,
+    const rows = await db.select<Cable[]>(
+      `SELECT c.*,
         (SELECT COUNT(*) FROM cable_cores cc JOIN signals s ON cc.signal_id = s.id WHERE cc.cable_id = c.id) as signal_count
        FROM cables c
-       WHERE c.project_id = $1`;
-    const params: unknown[] = [selectedProject.id];
-    if (selectedPanel) {
-      query += ` AND c.panel_id = $2`;
-      params.push(selectedPanel.id);
-    }
-    query += ` ORDER BY c.cable_tag`;
-    const rows = await db.select<Cable[]>(query, params);
+       WHERE c.project_id = $1 AND c.panel_id = $2
+       ORDER BY c.cable_tag`,
+      [selectedProject.id, selectedPanel.id]
+    );
     setCables(rows);
   }, [selectedProject, selectedPanel]);
 
   const loadSignals = useCallback(async () => {
-    if (!selectedProject) return;
+    if (!selectedProject || !selectedPanel) { setSignals([]); return; }
     const db = await getDatabase();
-    let query = `SELECT id, tag_name, io_type, item_number FROM signals WHERE project_id = $1`;
-    const params: unknown[] = [selectedProject.id];
-    if (selectedPanel) {
-      query += ` AND panel_id = $2`;
-      params.push(selectedPanel.id);
-    }
-    query += ` ORDER BY item_number`;
-    const rows = await db.select<SignalOption[]>(query, params);
+    const rows = await db.select<SignalOption[]>(
+      `SELECT id, tag_name, io_type, item_number FROM signals
+       WHERE project_id = $1 AND panel_id = $2
+       ORDER BY item_number`,
+      [selectedProject.id, selectedPanel.id]
+    );
     setSignals(rows);
   }, [selectedProject, selectedPanel]);
 
@@ -512,7 +507,7 @@ export function CablesPage() {
     setGenerating(true);
     setGenerateConfirmOpen(false);
     try {
-      const result = await generateCableSchedule(selectedProject.id, username, selectedPanel?.id);
+      const result = await generateCableSchedule(selectedProject.id, username, selectedPanel!.id);
       setGenerateResult(result);
       await loadCables();
       await loadSignals();

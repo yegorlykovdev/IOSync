@@ -77,3 +77,11 @@
     overflow: hidden;
   }
 }
+
+/* Multi-cell selection highlight */
+td.grid-cell-selected {
+  background-color: hsl(222.2 84% 4.9% / 0.08) !important;
+}
+.dark td.grid-cell-selected {
+  background-color: hsl(210 40% 98% / 0.12) !important;
+}

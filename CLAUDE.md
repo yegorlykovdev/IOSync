@@ -67,6 +67,8 @@ Note: The original `signal_type` (CHECK DI/DO/AI/AO) and `tag` (NOT NULL) column
 
 **008_unique_rack_slot_per_panel:** Adds partial unique index `(panel_id, rack, slot) WHERE panel_id IS NOT NULL` on plc_hardware — prevents duplicate rack/slot within the same panel.
 
+**009_revision_panel_id:** Adds `panel_id` (FK to panels, ON DELETE SET NULL) to revisions table with index. Backfills existing revisions by joining against signals, plc_hardware, cables, and panels entity tables.
+
 All tables have foreign keys with CASCADE/SET NULL and indexes on `project_id` + frequently queried columns.
 
 ## PLC Platform Support
@@ -213,6 +215,7 @@ src-tauri/
   - Expandable field details for multi-field changes
   - Click navigation to affected entity's page
   - Pagination (30 events per page)
+  - **Panel-scoped revisions**: migration 009 adds `panel_id` to revisions table; `useTrackedUpdate` sets panel_id from context; RevisionsPage filters by `panel_id` when inside a panel workspace, shows all project revisions from sidebar; `generate-cables.ts` also sets panel_id on revision inserts
 
 **Phase 3 — Cables & Panels: IN PROGRESS**
 - 3.1 Cable Management Page — COMPLETE
@@ -274,6 +277,14 @@ src-tauri/
 - Ctrl+C: copies full cell value when no text selected; copies select option text
 - Ctrl+V single cell: native for inputs; matches option text for selects
 - Ctrl+V multi-cell: pastes tab/newline-separated rectangular range from focused cell
+- **Multi-cell rectangular selection**: click-drag or Shift+click to select a range of cells
+  - Visual highlight via CSS class (`grid-cell-selected`) — zero React re-renders during drag
+  - Ctrl/Cmd+C copies entire selection as tab/newline-separated TSV (Excel-compatible)
+  - Selection clears on Escape, or when an input gains focus for editing
+  - Single-click without drag focuses the cell for editing (no selection)
+  - Works on both IO List (TanStack Table) and Cable Schedule (core mapping table)
+  - Read-only cells included in selection/copy (extracts textContent)
+  - DOM-based implementation: uses `elementFromPoint`, `classList` toggling, no React state
 - Applied to all IO List cell types (TextInputCell, SelectInputCell, ModuleSelectCell, inline selects)
 - Applied to Cable Schedule core mapping (color/signal selects, terminal/notes inputs)
 - Selection and copy work in read-only mode; paste disabled when locked
@@ -314,6 +325,16 @@ src-tauri/
   - All engineering documents are panel-specific (accessed via panel workspace tabs)
   - TopBar panel selector dropdown removed (workspace header shows panel info)
   - RevisionsPage entity navigation links disabled for panel-scoped entities (signal, plc_hardware, cable); only Panel entity keeps `/panels` link
+
+- 4.8 Panel Data Isolation — COMPLETE
+  - All data queries now **require** selectedPanel (bail early with empty state if null) instead of optionally filtering
+  - PlcHardwarePage, IoListPage, CablesPage load functions return empty arrays when no panel is selected
+  - Queries use mandatory `AND panel_id = $N` instead of conditional `if (selectedPanel)` filtering
+  - Prevents flash of cross-panel data during panel switching (useEffect sets panel after first render)
+  - Copy Row in IO List now preserves panel_id from source signal
+  - Sync from Hardware duplicate detection scoped to panel (not project-wide)
+  - generateCableSchedule requires panelId (non-optional) — always scoped to panel signals and cables
+  - Each panel is a fully isolated engineering package: PLC Hardware, IO List, Cable Schedule
 
 ## Next Up
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useProject } from "@/contexts/ProjectContext";
+import { usePanel } from "@/contexts/PanelContext";
 import { getDatabase } from "@/db/database";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -227,6 +228,7 @@ async function resolveLabels(groups: ChangeGroup[]): Promise<Map<string, string>
 
 export function RevisionsPage() {
   const { selectedProject } = useProject();
+  const { selectedPanel } = usePanel();
   const navigate = useNavigate();
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [entityLabels, setEntityLabels] = useState<Map<string, string>>(new Map());
@@ -240,12 +242,22 @@ export function RevisionsPage() {
   const loadRevisions = useCallback(async () => {
     if (!selectedProject) return;
     const db = await getDatabase();
-    const rows = await db.select<Revision[]>(
-      `SELECT * FROM revisions WHERE project_id = $1 ORDER BY changed_at DESC, id DESC`,
-      [selectedProject.id]
-    );
-    setRevisions(rows);
-  }, [selectedProject]);
+    if (selectedPanel) {
+      // Panel-scoped: show only revisions for this panel
+      const rows = await db.select<Revision[]>(
+        `SELECT * FROM revisions WHERE project_id = $1 AND panel_id = $2 ORDER BY changed_at DESC, id DESC`,
+        [selectedProject.id, selectedPanel.id]
+      );
+      setRevisions(rows);
+    } else {
+      // Project-scoped: show all revisions
+      const rows = await db.select<Revision[]>(
+        `SELECT * FROM revisions WHERE project_id = $1 ORDER BY changed_at DESC, id DESC`,
+        [selectedProject.id]
+      );
+      setRevisions(rows);
+    }
+  }, [selectedProject, selectedPanel]);
 
   useEffect(() => {
     loadRevisions();

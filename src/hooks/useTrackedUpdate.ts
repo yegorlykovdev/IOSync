@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { getDatabase } from "@/db/database";
 import { useUser } from "@/contexts/UserContext";
+import { usePanel } from "@/contexts/PanelContext";
 
 /**
  * Hook that provides tracked database write operations.
@@ -8,6 +9,7 @@ import { useUser } from "@/contexts/UserContext";
  */
 export function useTrackedUpdate(projectId: number | undefined) {
   const { username } = useUser();
+  const { selectedPanel } = usePanel();
 
   /** Log a revision entry. */
   const logRevision = useCallback(
@@ -21,12 +23,12 @@ export function useTrackedUpdate(projectId: number | undefined) {
       if (!projectId) return;
       const db = await getDatabase();
       await db.execute(
-        `INSERT INTO revisions (project_id, entity_type, entity_id, field_name, old_value, new_value, changed_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [projectId, entityType, entityId, fieldName, oldValue, newValue, username]
+        `INSERT INTO revisions (project_id, panel_id, entity_type, entity_id, field_name, old_value, new_value, changed_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [projectId, selectedPanel?.id ?? null, entityType, entityId, fieldName, oldValue, newValue, username]
       );
     },
-    [projectId, username]
+    [projectId, selectedPanel, username]
   );
 
   /** Update a single field on a record and log the change. */

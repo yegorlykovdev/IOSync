@@ -508,33 +508,27 @@ export function IoListPage() {
   // ── Load data ──────────────────────────────────────────────────────
 
   const loadSignals = useCallback(async () => {
-    if (!selectedProject) return;
+    if (!selectedProject || !selectedPanel) { setSignals([]); return; }
     const db = await getDatabase();
-    let query = `SELECT * FROM signals WHERE project_id = $1`;
-    const params: unknown[] = [selectedProject.id];
-    if (selectedPanel) {
-      query += ` AND panel_id = $2`;
-      params.push(selectedPanel.id);
-    }
-    query += ` ORDER BY CAST(rack AS INTEGER), CAST(slot AS INTEGER), CAST(channel AS INTEGER), id`;
-    const rows = await db.select<Signal[]>(query, params);
+    const rows = await db.select<Signal[]>(
+      `SELECT * FROM signals WHERE project_id = $1 AND panel_id = $2
+       ORDER BY CAST(rack AS INTEGER), CAST(slot AS INTEGER), CAST(channel AS INTEGER), id`,
+      [selectedProject.id, selectedPanel.id]
+    );
     setSignals(rows);
   }, [selectedProject, selectedPanel]);
 
   const loadModules = useCallback(async () => {
-    if (!selectedProject) return;
+    if (!selectedProject || !selectedPanel) { setModules([]); return; }
     const db = await getDatabase();
-    let query = `SELECT id, plc_name, rack, slot, module_type, channels, channel_type,
+    const rows = await db.select<PlcModule[]>(
+      `SELECT id, plc_name, rack, slot, module_type, channels, channel_type,
               module_category, protocol, ip_address, firmware_version
        FROM plc_hardware
-       WHERE project_id = $1`;
-    const params: unknown[] = [selectedProject.id];
-    if (selectedPanel) {
-      query += ` AND panel_id = $2`;
-      params.push(selectedPanel.id);
-    }
-    query += ` ORDER BY rack, slot`;
-    const rows = await db.select<PlcModule[]>(query, params);
+       WHERE project_id = $1 AND panel_id = $2
+       ORDER BY rack, slot`,
+      [selectedProject.id, selectedPanel.id]
+    );
     setModules(rows);
   }, [selectedProject, selectedPanel]);
 
@@ -696,7 +690,7 @@ export function IoListPage() {
 
       const insertResult = await db.execute(
         `INSERT INTO signals (
-          project_id, item_number, plc_hardware_id, io_type, channel, tag_name,
+          project_id, panel_id, item_number, plc_hardware_id, io_type, channel, tag_name,
           description, is_spare, signal_spec, plc_panel, signal_low, signal_high,
           range_units, rack, slot, card_part_number, pre_assigned_address,
           state_description, history_enabled, cov_deadband, time_delay, forced_storage_interval,
@@ -708,7 +702,7 @@ export function IoListPage() {
           resp_customer, resp_mech, resp_elec, resp_future, resp_dcim, resp_osc,
           comms_access, comms_data_type, comments, sort_order, signal_type, tag
         ) SELECT
-          project_id, $1, plc_hardware_id, io_type, channel, tag_name,
+          project_id, panel_id, $1, plc_hardware_id, io_type, channel, tag_name,
           description, is_spare, signal_spec, plc_panel, signal_low, signal_high,
           range_units, rack, slot, card_part_number, pre_assigned_address,
           state_description, history_enabled, cov_deadband, time_delay, forced_storage_interval,
@@ -930,11 +924,11 @@ export function IoListPage() {
     try {
       const db = await getDatabase();
 
-      // Get existing signal → module+channel mappings
+      // Get existing signal → module+channel mappings (panel-scoped)
       const existing = await db.select<{ plc_hardware_id: number; channel: string | null }[]>(
         `SELECT plc_hardware_id, channel FROM signals
-         WHERE project_id = $1 AND plc_hardware_id IS NOT NULL`,
-        [selectedProject.id]
+         WHERE project_id = $1 AND panel_id = $2 AND plc_hardware_id IS NOT NULL`,
+        [selectedProject.id, selectedPanel!.id]
       );
       const existingSet = new Set(
         existing.map((s) => `${s.plc_hardware_id}:${s.channel ?? "null"}`)

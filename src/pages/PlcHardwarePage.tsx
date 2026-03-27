@@ -190,9 +190,10 @@ export function PlcHardwarePage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
   const loadModules = useCallback(async () => {
-    if (!selectedProject) return;
+    if (!selectedProject || !selectedPanel) { setModules([]); return; }
     const db = await getDatabase();
-    let query = `SELECT h.*,
+    const rows = await db.select<(PlcModule & { used_channels: number })[]>(
+      `SELECT h.*,
               COALESCE(s.cnt, 0) as used_channels
        FROM plc_hardware h
        LEFT JOIN (
@@ -205,14 +206,10 @@ export function PlcHardwarePage() {
            AND TRIM(tag_name) != ''
          GROUP BY plc_hardware_id
        ) s ON s.plc_hardware_id = h.id
-       WHERE h.project_id = $1`;
-    const params: unknown[] = [selectedProject.id];
-    if (selectedPanel) {
-      query += ` AND h.panel_id = $2`;
-      params.push(selectedPanel.id);
-    }
-    query += ` ORDER BY h.rack, h.slot, h.plc_name`;
-    const rows = await db.select<(PlcModule & { used_channels: number })[]>(query, params);
+       WHERE h.project_id = $1 AND h.panel_id = $2
+       ORDER BY h.rack, h.slot, h.plc_name`,
+      [selectedProject.id, selectedPanel.id]
+    );
     setModules(rows);
   }, [selectedProject, selectedPanel]);
 

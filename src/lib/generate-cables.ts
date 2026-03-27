@@ -74,40 +74,36 @@ function isSpareSignal(sig: SignalRow): boolean {
 export async function generateCableSchedule(
   projectId: number,
   username: string,
-  panelId?: number | null
+  panelId: number
 ): Promise<GenerationResult> {
   const db = await getDatabase();
 
   // Fetch all non-spare, non-SoftComm signals that have NO cable assigned
-  let candidateQuery = `SELECT id, io_type, tag_name, description, plc_panel, field_device_tag
+  const candidates = await db.select<SignalRow[]>(
+    `SELECT id, io_type, tag_name, description, plc_panel, field_device_tag
      FROM signals
      WHERE project_id = $1
+       AND panel_id = $2
        AND (is_spare = 0 OR is_spare IS NULL)
        AND io_type != 'SoftComm'
        AND tag_name IS NOT NULL
        AND TRIM(tag_name) != ''
-       AND cable_id IS NULL`;
-  const candidateParams: unknown[] = [projectId];
-  if (panelId) {
-    candidateQuery += ` AND panel_id = $2`;
-    candidateParams.push(panelId);
-  }
-  candidateQuery += ` ORDER BY sort_order, item_number, id`;
-  const candidates = await db.select<SignalRow[]>(candidateQuery, candidateParams);
+       AND cable_id IS NULL
+     ORDER BY sort_order, item_number, id`,
+    [projectId, panelId]
+  );
 
   // Count already-assigned for reporting
-  let countQuery = `SELECT COUNT(*) as cnt FROM signals
+  const totalRows = await db.select<{ cnt: number }[]>(
+    `SELECT COUNT(*) as cnt FROM signals
      WHERE project_id = $1
+       AND panel_id = $2
        AND (is_spare = 0 OR is_spare IS NULL)
        AND io_type != 'SoftComm'
        AND tag_name IS NOT NULL
-       AND TRIM(tag_name) != ''`;
-  const countParams: unknown[] = [projectId];
-  if (panelId) {
-    countQuery += ` AND panel_id = $2`;
-    countParams.push(panelId);
-  }
-  const totalRows = await db.select<{ cnt: number }[]>(countQuery, countParams);
+       AND TRIM(tag_name) != ''`,
+    [projectId, panelId]
+  );
   const skippedAlreadyAssigned = (totalRows[0]?.cnt ?? 0) - candidates.length;
 
   // Find highest existing CB-NNN tag number
@@ -144,7 +140,7 @@ export async function generateCableSchedule(
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         projectId,
-        panelId ?? null,
+        panelId,
         cableTag,
         cableType,
         CORES_PER_CABLE,
@@ -159,9 +155,9 @@ export async function generateCableSchedule(
 
     // Revision log
     await db.execute(
-      `INSERT INTO revisions (project_id, entity_type, entity_id, field_name, old_value, new_value, changed_by)
-       VALUES ($1, 'cable', $2, 'cable_tag', NULL, $3, $4)`,
-      [projectId, cableId, cableTag, username]
+      `INSERT INTO revisions (project_id, panel_id, entity_type, entity_id, field_name, old_value, new_value, changed_by)
+       VALUES ($1, $2, 'cable', $3, 'cable_tag', NULL, $4, $5)`,
+      [projectId, panelId, cableId, cableTag, username]
     );
 
     // Create 3 cable_core rows: core 1 linked to signal, cores 2-3 spare
