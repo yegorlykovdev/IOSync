@@ -11,6 +11,7 @@ import {
   type RowSelectionState,
 } from "@tanstack/react-table";
 import { useProject } from "@/contexts/ProjectContext";
+import { usePanel } from "@/contexts/PanelContext";
 import { getDatabase } from "@/db/database";
 import { computePlcAddress, type ChannelType } from "@/lib/plc-address";
 import { Button } from "@/components/ui/button";
@@ -484,6 +485,7 @@ function isNonIoHardwareShadowRow(signal: Signal, modules: PlcModule[]): boolean
 
 export function IoListPage() {
   const { selectedProject, readOnly } = useProject();
+  const { selectedPanel } = usePanel();
   const { trackedUpdateField, trackedUpdateFields, trackedCreate, trackedDelete } = useTrackedUpdate(selectedProject?.id);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [modules, setModules] = useState<PlcModule[]>([]);
@@ -508,26 +510,33 @@ export function IoListPage() {
   const loadSignals = useCallback(async () => {
     if (!selectedProject) return;
     const db = await getDatabase();
-    const rows = await db.select<Signal[]>(
-      `SELECT * FROM signals WHERE project_id = $1 ORDER BY CAST(rack AS INTEGER), CAST(slot AS INTEGER), CAST(channel AS INTEGER), id`,
-      [selectedProject.id]
-    );
+    let query = `SELECT * FROM signals WHERE project_id = $1`;
+    const params: unknown[] = [selectedProject.id];
+    if (selectedPanel) {
+      query += ` AND panel_id = $2`;
+      params.push(selectedPanel.id);
+    }
+    query += ` ORDER BY CAST(rack AS INTEGER), CAST(slot AS INTEGER), CAST(channel AS INTEGER), id`;
+    const rows = await db.select<Signal[]>(query, params);
     setSignals(rows);
-  }, [selectedProject]);
+  }, [selectedProject, selectedPanel]);
 
   const loadModules = useCallback(async () => {
     if (!selectedProject) return;
     const db = await getDatabase();
-    const rows = await db.select<PlcModule[]>(
-      `SELECT id, plc_name, rack, slot, module_type, channels, channel_type,
+    let query = `SELECT id, plc_name, rack, slot, module_type, channels, channel_type,
               module_category, protocol, ip_address, firmware_version
        FROM plc_hardware
-       WHERE project_id = $1
-       ORDER BY rack, slot`,
-      [selectedProject.id]
-    );
+       WHERE project_id = $1`;
+    const params: unknown[] = [selectedProject.id];
+    if (selectedPanel) {
+      query += ` AND panel_id = $2`;
+      params.push(selectedPanel.id);
+    }
+    query += ` ORDER BY rack, slot`;
+    const rows = await db.select<PlcModule[]>(query, params);
     setModules(rows);
-  }, [selectedProject]);
+  }, [selectedProject, selectedPanel]);
 
   useEffect(() => {
     loadSignals();
@@ -650,9 +659,9 @@ export function IoListPage() {
       const nextNum = (result[0]?.max_num ?? 0) + 1;
 
       const insertResult = await db.execute(
-        `INSERT INTO signals (project_id, item_number, io_type, description, is_spare, sort_order, signal_type, tag)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [selectedProject.id, nextNum, "DI", spare ? "Spare" : "", spare ? 1 : 0, nextNum, "DI", spare ? "Spare" : "New"]
+        `INSERT INTO signals (project_id, panel_id, item_number, io_type, description, is_spare, sort_order, signal_type, tag)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [selectedProject.id, selectedPanel?.id ?? null, nextNum, "DI", spare ? "Spare" : "", spare ? 1 : 0, nextNum, "DI", spare ? "Spare" : "New"]
       );
       if (insertResult.lastInsertId) {
         await trackedCreate("signal", insertResult.lastInsertId, {
@@ -670,7 +679,7 @@ export function IoListPage() {
         }
       }, 50);
     },
-    [selectedProject, loadSignals, trackedCreate]
+    [selectedProject, selectedPanel, loadSignals, trackedCreate]
   );
 
   // ── Copy row ───────────────────────────────────────────────────────
@@ -959,12 +968,12 @@ export function IoListPage() {
             );
             await db.execute(
               `INSERT INTO signals (
-                project_id, item_number, plc_hardware_id, io_type, description,
+                project_id, panel_id, item_number, plc_hardware_id, io_type, description,
                 rack, slot, channel, card_part_number, plc_panel,
                 pre_assigned_address, sort_order, signal_type, tag
-              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
               [
-                selectedProject.id, nextNum, mod.id, mod.channel_type,
+                selectedProject.id, selectedPanel?.id ?? null, nextNum, mod.id, mod.channel_type,
                 "", String(mod.rack), String(mod.slot), chStr,
                 mod.module_type, mod.plc_name, address, nextNum,
                 ["DI", "DO", "AI", "AO"].includes(mod.channel_type) ? mod.channel_type : "DI",
@@ -1011,7 +1020,7 @@ export function IoListPage() {
     } finally {
       setSyncing(false);
     }
-  }, [selectedProject, modules, syncing, loadSignals]);
+  }, [selectedProject, selectedPanel, modules, syncing, loadSignals]);
 
   // ── Helper to build text cell column ───────────────────────────────
 

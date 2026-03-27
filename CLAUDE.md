@@ -8,7 +8,7 @@ Desktop app for control engineers to manage IO Lists, Cable Schedules, and Panel
 - **Database:** SQLite via `@tauri-apps/plugin-sql` (frontend) + `tauri-plugin-sql` (Rust)
 - **Migrations:** Custom TS runner in `src/db/migrate.ts` — runs on app startup
 - **Routing:** react-router-dom with layout route in `src/App.tsx`
-- **State:** React context for selected project (`src/contexts/ProjectContext.tsx`), user (`src/contexts/UserContext.tsx`)
+- **State:** React context for selected project (`src/contexts/ProjectContext.tsx`), panel (`src/contexts/PanelContext.tsx`), user (`src/contexts/UserContext.tsx`)
 - **Theme:** Dark/light with CSS variables, toggle in top bar, persisted to localStorage
 - **Path alias:** `@/` maps to `src/`
 - **Build check:** Always run `pnpm tauri build` after changes to verify both TS and Rust compile
@@ -61,6 +61,10 @@ Note: The original `signal_type` (CHECK DI/DO/AI/AO) and `tag` (NOT NULL) column
 
 **005_cable_core_assignment:** Adds `assignment_type` (signal/common/ground/shield/spare/empty) to cable_cores. Backfills existing rows from signal_id and notes.
 
+**006_panel_scope_cables:** Adds `panel_id` (FK to panels, ON DELETE SET NULL) to cables table with index.
+
+**007_panel_scope_hardware:** Adds `panel_id` (FK to panels, ON DELETE SET NULL) to plc_hardware table with index.
+
 All tables have foreign keys with CASCADE/SET NULL and indexes on `project_id` + frequently queried columns.
 
 ## PLC Platform Support
@@ -104,6 +108,7 @@ src/
     ui/                      — shadcn/ui components
   contexts/
     ProjectContext.tsx        — Selected project state + CRUD + readOnly flag
+    PanelContext.tsx          — Selected panel state + CRUD, clears on project change
     UserContext.tsx           — OS username from Rust command
   hooks/
     useTheme.ts              — Dark/light theme toggle
@@ -116,6 +121,8 @@ src/
     IoListPage.tsx           — IO List: TanStack Table data grid, inline editing, add/edit Sheet, column visibility, filtering
     CablesPage.tsx           — Cable management with expandable core mapping, signal linking, revision tracking
     RevisionsPage.tsx        — Revision history: grouped timeline, filters, entity labels, navigation
+    PanelsPage.tsx           — Panel CRUD, click to open workspace
+    PanelWorkspacePage.tsx   — Tabbed workspace (IO List, Cable Schedule, Panel Drawing)
     PlaceholderPage.tsx      — Stub for unbuilt pages
 src-tauri/
   src/lib.rs                 — Tauri commands (get_username, acquire_lock, release_lock) + plugins
@@ -268,6 +275,42 @@ src-tauri/
 - Applied to Cable Schedule core mapping (color/signal selects, terminal/notes inputs)
 - Selection and copy work in read-only mode; paste disabled when locked
 - TextInputCell commit reads from DOM ref for paste compatibility
+
+**Phase 4 — Panel Scoping: COMPLETE**
+- 4.1 Panel Entity & Page — COMPLETE
+  - `PanelContext.tsx` — panel selection state + CRUD, clears on project change
+  - `PanelsPage.tsx` — panel CRUD table with signal/cable counts, click to open workspace
+  - Panels route wired in App.tsx, PanelProvider wraps all routes inside ProjectProvider
+- 4.2 Panel-Scoped IO List — COMPLETE
+  - IO List filters signals by `panel_id` when a panel is selected
+  - New signals (Add Row, Sync from Hardware) auto-assigned to selected panel
+  - Module dropdown also filtered to panel scope
+- 4.3 Panel-Scoped Cable Schedule — COMPLETE
+  - Cable Schedule filters cables by `panel_id` when a panel is selected
+  - New cables (Add Cable, Generate from IO List) auto-assigned to selected panel
+  - Signal dropdown in core mapping also filtered to panel scope
+  - Cable generation scoped to panel signals when panel is selected
+  - Migration 006 adds `panel_id` FK to cables table
+- 4.4 Panel-Scoped PLC Hardware — COMPLETE
+  - PLC Hardware filters modules by `panel_id` when a panel is selected
+  - New modules auto-assigned to selected panel
+  - Migration 007 adds `panel_id` FK to plc_hardware table
+- 4.5 Panel Delete — unlinks signals/cables (sets panel_id NULL), does not delete them
+- 4.6 Panel Workspace — COMPLETE
+  - `PanelWorkspacePage.tsx` — tabbed workspace at `/panels/:panelId`
+  - Tabs: PLC Hardware, IO List, Cable Schedule, Panel Drawing (placeholder), Revisions
+  - Workspace auto-selects panel in context on mount, clears on unmount
+  - Each tab renders the full page component (PlcHardwarePage/IoListPage/CablesPage/RevisionsPage), auto-scoped to selected panel
+  - PanelsPage click navigates to workspace (with chevron indicator)
+  - Back button returns to panels list
+  - Panel Drawing placeholder with future-update message
+
+- 4.7 Panel-First Navigation — COMPLETE
+  - Sidebar simplified to 3 items: Projects, Panels, Revisions
+  - PLC Hardware, IO List, Cables removed from global sidebar and top-level routes
+  - All engineering documents are panel-specific (accessed via panel workspace tabs)
+  - TopBar panel selector dropdown removed (workspace header shows panel info)
+  - RevisionsPage entity navigation links disabled for panel-scoped entities (signal, plc_hardware, cable); only Panel entity keeps `/panels` link
 
 ## Next Up
 

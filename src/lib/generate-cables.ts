@@ -73,34 +73,41 @@ function isSpareSignal(sig: SignalRow): boolean {
  */
 export async function generateCableSchedule(
   projectId: number,
-  username: string
+  username: string,
+  panelId?: number | null
 ): Promise<GenerationResult> {
   const db = await getDatabase();
 
   // Fetch all non-spare, non-SoftComm signals that have NO cable assigned
-  const candidates = await db.select<SignalRow[]>(
-    `SELECT id, io_type, tag_name, description, plc_panel, field_device_tag
+  let candidateQuery = `SELECT id, io_type, tag_name, description, plc_panel, field_device_tag
      FROM signals
      WHERE project_id = $1
        AND (is_spare = 0 OR is_spare IS NULL)
        AND io_type != 'SoftComm'
        AND tag_name IS NOT NULL
        AND TRIM(tag_name) != ''
-       AND cable_id IS NULL
-     ORDER BY sort_order, item_number, id`,
-    [projectId]
-  );
+       AND cable_id IS NULL`;
+  const candidateParams: unknown[] = [projectId];
+  if (panelId) {
+    candidateQuery += ` AND panel_id = $2`;
+    candidateParams.push(panelId);
+  }
+  candidateQuery += ` ORDER BY sort_order, item_number, id`;
+  const candidates = await db.select<SignalRow[]>(candidateQuery, candidateParams);
 
   // Count already-assigned for reporting
-  const totalRows = await db.select<{ cnt: number }[]>(
-    `SELECT COUNT(*) as cnt FROM signals
+  let countQuery = `SELECT COUNT(*) as cnt FROM signals
      WHERE project_id = $1
        AND (is_spare = 0 OR is_spare IS NULL)
        AND io_type != 'SoftComm'
        AND tag_name IS NOT NULL
-       AND TRIM(tag_name) != ''`,
-    [projectId]
-  );
+       AND TRIM(tag_name) != ''`;
+  const countParams: unknown[] = [projectId];
+  if (panelId) {
+    countQuery += ` AND panel_id = $2`;
+    countParams.push(panelId);
+  }
+  const totalRows = await db.select<{ cnt: number }[]>(countQuery, countParams);
   const skippedAlreadyAssigned = (totalRows[0]?.cnt ?? 0) - candidates.length;
 
   // Find highest existing CB-NNN tag number
@@ -132,11 +139,12 @@ export async function generateCableSchedule(
 
     // Insert cable
     const result = await db.execute(
-      `INSERT INTO cables (project_id, cable_tag, cable_type, core_count,
+      `INSERT INTO cables (project_id, panel_id, cable_tag, cable_type, core_count,
          from_location, to_device, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         projectId,
+        panelId ?? null,
         cableTag,
         cableType,
         CORES_PER_CABLE,

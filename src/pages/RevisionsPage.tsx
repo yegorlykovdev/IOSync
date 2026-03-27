@@ -101,10 +101,10 @@ const ACTION_STYLES: Record<string, { label: string; className: string; dotColor
   delete: { label: "Deleted", className: "bg-red-500/15 text-red-700 dark:text-red-400", dotColor: "bg-red-500" },
 };
 
-const ENTITY_STYLES: Record<string, { label: string; className: string; route: string }> = {
-  signal: { label: "Signal", className: "bg-orange-500/15 text-orange-700 dark:text-orange-400", route: "/io-list" },
-  plc_hardware: { label: "PLC Hardware", className: "bg-purple-500/15 text-purple-700 dark:text-purple-400", route: "/plc-hardware" },
-  cable: { label: "Cable", className: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400", route: "/cables" },
+const ENTITY_STYLES: Record<string, { label: string; className: string; route: string | null }> = {
+  signal: { label: "Signal", className: "bg-orange-500/15 text-orange-700 dark:text-orange-400", route: null },
+  plc_hardware: { label: "PLC Hardware", className: "bg-purple-500/15 text-purple-700 dark:text-purple-400", route: null },
+  cable: { label: "Cable", className: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400", route: null },
   panel: { label: "Panel", className: "bg-amber-500/15 text-amber-700 dark:text-amber-400", route: "/panels" },
 };
 
@@ -488,7 +488,7 @@ export function RevisionsPage() {
                             {es.route && (
                               <button
                                 className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                                onClick={() => navigate(es.route)}
+                                onClick={() => navigate(es.route!)}
                                 title={`Go to ${es.label}`}
                               >
                                 <ExternalLink className="h-3 w-3" />

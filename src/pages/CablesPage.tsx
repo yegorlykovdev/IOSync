@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useProject } from "@/contexts/ProjectContext";
+import { usePanel } from "@/contexts/PanelContext";
 import { getDatabase } from "@/db/database";
 import { useTrackedUpdate } from "@/hooks/useTrackedUpdate";
 import { useUser } from "@/contexts/UserContext";
@@ -146,6 +147,7 @@ interface SignalOption {
 
 export function CablesPage() {
   const { selectedProject, readOnly } = useProject();
+  const { selectedPanel } = usePanel();
   const { username } = useUser();
   const { trackedCreate, trackedDelete, trackedUpdateFields } = useTrackedUpdate(selectedProject?.id);
   const [cables, setCables] = useState<Cable[]>([]);
@@ -198,26 +200,33 @@ export function CablesPage() {
   const loadCables = useCallback(async () => {
     if (!selectedProject) return;
     const db = await getDatabase();
-    const rows = await db.select<Cable[]>(
-      `SELECT c.*,
+    let query = `SELECT c.*,
         (SELECT COUNT(*) FROM cable_cores cc JOIN signals s ON cc.signal_id = s.id WHERE cc.cable_id = c.id) as signal_count
        FROM cables c
-       WHERE c.project_id = $1
-       ORDER BY c.cable_tag`,
-      [selectedProject.id]
-    );
+       WHERE c.project_id = $1`;
+    const params: unknown[] = [selectedProject.id];
+    if (selectedPanel) {
+      query += ` AND c.panel_id = $2`;
+      params.push(selectedPanel.id);
+    }
+    query += ` ORDER BY c.cable_tag`;
+    const rows = await db.select<Cable[]>(query, params);
     setCables(rows);
-  }, [selectedProject]);
+  }, [selectedProject, selectedPanel]);
 
   const loadSignals = useCallback(async () => {
     if (!selectedProject) return;
     const db = await getDatabase();
-    const rows = await db.select<SignalOption[]>(
-      `SELECT id, tag_name, io_type, item_number FROM signals WHERE project_id = $1 ORDER BY item_number`,
-      [selectedProject.id]
-    );
+    let query = `SELECT id, tag_name, io_type, item_number FROM signals WHERE project_id = $1`;
+    const params: unknown[] = [selectedProject.id];
+    if (selectedPanel) {
+      query += ` AND panel_id = $2`;
+      params.push(selectedPanel.id);
+    }
+    query += ` ORDER BY item_number`;
+    const rows = await db.select<SignalOption[]>(query, params);
     setSignals(rows);
-  }, [selectedProject]);
+  }, [selectedProject, selectedPanel]);
 
   useEffect(() => {
     loadCables();
@@ -302,11 +311,12 @@ export function CablesPage() {
       }
     } else {
       const result = await db.execute(
-        `INSERT INTO cables (project_id, cable_tag, cable_type, core_count, from_location, to_location,
+        `INSERT INTO cables (project_id, panel_id, cable_tag, cable_type, core_count, from_location, to_location,
            from_device, to_device, length_m, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           selectedProject.id,
+          selectedPanel?.id ?? null,
           fieldValues.cable_tag,
           fieldValues.cable_type,
           fieldValues.core_count,
@@ -502,7 +512,7 @@ export function CablesPage() {
     setGenerating(true);
     setGenerateConfirmOpen(false);
     try {
-      const result = await generateCableSchedule(selectedProject.id, username);
+      const result = await generateCableSchedule(selectedProject.id, username, selectedPanel?.id);
       setGenerateResult(result);
       await loadCables();
       await loadSignals();
@@ -511,7 +521,7 @@ export function CablesPage() {
     } finally {
       setGenerating(false);
     }
-  }, [selectedProject, generating, username, loadCables, loadSignals]);
+  }, [selectedProject, selectedPanel, generating, username, loadCables, loadSignals]);
 
   // ── Bulk actions ──────────────────────────────────────────────────
 

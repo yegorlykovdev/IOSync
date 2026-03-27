@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useProject } from "@/contexts/ProjectContext";
+import { usePanel } from "@/contexts/PanelContext";
 import { getDatabase } from "@/db/database";
 import { useTrackedUpdate } from "@/hooks/useTrackedUpdate";
 import {
@@ -180,6 +181,7 @@ function UtilizationBar({ used, total }: { used: number; total: number }) {
 
 export function PlcHardwarePage() {
   const { selectedProject, readOnly } = useProject();
+  const { selectedPanel } = usePanel();
   const { trackedCreate, trackedDelete, trackedUpdateFields } = useTrackedUpdate(selectedProject?.id);
   const [modules, setModules] = useState<ModuleUtilization[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -190,8 +192,7 @@ export function PlcHardwarePage() {
   const loadModules = useCallback(async () => {
     if (!selectedProject) return;
     const db = await getDatabase();
-    const rows = await db.select<(PlcModule & { used_channels: number })[]>(
-      `SELECT h.*,
+    let query = `SELECT h.*,
               COALESCE(s.cnt, 0) as used_channels
        FROM plc_hardware h
        LEFT JOIN (
@@ -204,12 +205,16 @@ export function PlcHardwarePage() {
            AND TRIM(tag_name) != ''
          GROUP BY plc_hardware_id
        ) s ON s.plc_hardware_id = h.id
-       WHERE h.project_id = $1
-       ORDER BY h.rack, h.slot, h.plc_name`,
-      [selectedProject.id]
-    );
+       WHERE h.project_id = $1`;
+    const params: unknown[] = [selectedProject.id];
+    if (selectedPanel) {
+      query += ` AND h.panel_id = $2`;
+      params.push(selectedPanel.id);
+    }
+    query += ` ORDER BY h.rack, h.slot, h.plc_name`;
+    const rows = await db.select<(PlcModule & { used_channels: number })[]>(query, params);
     setModules(rows);
-  }, [selectedProject]);
+  }, [selectedProject, selectedPanel]);
 
   useEffect(() => {
     loadModules();
@@ -333,10 +338,10 @@ export function PlcHardwarePage() {
       await trackedUpdateFields("plc_hardware", editingId, "plc_hardware", fieldValues);
     } else {
       const result = await db.execute(
-        `INSERT INTO plc_hardware (project_id, plc_name, rack, slot, module_type, channels, channel_type,
+        `INSERT INTO plc_hardware (project_id, panel_id, plc_name, rack, slot, module_type, channels, channel_type,
              module_category, protocol, ip_address, port, baud_rate, station_address, firmware_version)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-        [selectedProject.id, ...params]
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+        [selectedProject.id, selectedPanel?.id ?? null, ...params]
       );
       const newId = result.lastInsertId;
       if (newId) {

@@ -2,14 +2,13 @@ import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { getDatabase } from "./db/database";
 import { ProjectProvider } from "./contexts/ProjectContext";
+import { PanelProvider } from "./contexts/PanelContext";
 import { UserProvider } from "./contexts/UserContext";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { AppLayout } from "./components/layout/AppLayout";
 import { ProjectsPage } from "./pages/ProjectsPage";
-import { PlcHardwarePage } from "./pages/PlcHardwarePage";
-import { IoListPage } from "./pages/IoListPage";
-import { PlaceholderPage } from "./pages/PlaceholderPage";
-import { CablesPage } from "./pages/CablesPage";
+import { PanelsPage } from "./pages/PanelsPage";
+import { PanelWorkspacePage } from "./pages/PanelWorkspacePage";
 import { RevisionsPage } from "./pages/RevisionsPage";
 import { useFileLock } from "./hooks/useFileLock";
 import "./App.css";
@@ -21,27 +20,24 @@ function AppRoutes() {
     <BrowserRouter>
       <TooltipProvider>
         <ProjectProvider readOnly={fileLock.readOnly}>
-          <Routes>
-            <Route
-              element={
-                <AppLayout
-                  readOnly={fileLock.readOnly}
-                  lockedBy={fileLock.lockedBy}
-                />
-              }
-            >
-              <Route path="/projects" element={<ProjectsPage />} />
-              <Route path="/plc-hardware" element={<PlcHardwarePage />} />
-              <Route path="/io-list" element={<IoListPage />} />
-              <Route path="/cables" element={<CablesPage />} />
+          <PanelProvider>
+            <Routes>
               <Route
-                path="/panels"
-                element={<PlaceholderPage title="Panels" />}
-              />
-              <Route path="/revisions" element={<RevisionsPage />} />
-              <Route path="*" element={<Navigate to="/projects" replace />} />
-            </Route>
-          </Routes>
+                element={
+                  <AppLayout
+                    readOnly={fileLock.readOnly}
+                    lockedBy={fileLock.lockedBy}
+                  />
+                }
+              >
+                <Route path="/projects" element={<ProjectsPage />} />
+                <Route path="/panels" element={<PanelsPage />} />
+                <Route path="/panels/:panelId" element={<PanelWorkspacePage />} />
+                <Route path="/revisions" element={<RevisionsPage />} />
+                <Route path="*" element={<Navigate to="/projects" replace />} />
+              </Route>
+            </Routes>
+          </PanelProvider>
         </ProjectProvider>
       </TooltipProvider>
     </BrowserRouter>
