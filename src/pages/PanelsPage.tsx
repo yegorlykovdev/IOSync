@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useProject } from "@/contexts/ProjectContext";
 import { usePanel, type CreatePanelData } from "@/contexts/PanelContext";
+import { duplicatePanel, type DuplicateResult } from "@/lib/duplicate-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, PanelTop, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, Copy, PanelTop, ChevronRight } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -42,12 +43,18 @@ const EMPTY_FORM: FormState = {
 
 export function PanelsPage() {
   const { selectedProject, readOnly } = useProject();
-  const { panels, createPanel, updatePanel, deletePanel } = usePanel();
+  const { panels, createPanel, updatePanel, deletePanel, refreshPanels } = usePanel();
   const navigate = useNavigate();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+
+  // Duplicate state
+  const [duplicateSourceId, setDuplicateSourceId] = useState<number | null>(null);
+  const [duplicateForm, setDuplicateForm] = useState<FormState>(EMPTY_FORM);
+  const [duplicating, setDuplicating] = useState(false);
+  const [duplicateResult, setDuplicateResult] = useState<DuplicateResult | null>(null);
 
   // ── Dialog handlers ─────────────────────────────────────────────────
 
@@ -65,6 +72,16 @@ export function PanelsPage() {
       location: panel.location ?? "",
     });
     setDialogOpen(true);
+  };
+
+  const openDuplicateDialog = (panel: { id: number; panel_name: string; panel_description: string | null; location: string | null }) => {
+    setDuplicateSourceId(panel.id);
+    setDuplicateForm({
+      panel_name: `${panel.panel_name} (Copy)`,
+      panel_description: panel.panel_description ?? "",
+      location: panel.location ?? "",
+    });
+    setDuplicateResult(null);
   };
 
   const handleSave = async () => {
@@ -85,6 +102,26 @@ export function PanelsPage() {
   const handleDelete = async (id: number) => {
     await deletePanel(id);
     setDeleteConfirmId(null);
+  };
+
+  const handleDuplicate = async () => {
+    if (!selectedProject || !duplicateSourceId || !duplicateForm.panel_name.trim()) return;
+    setDuplicating(true);
+    try {
+      const result = await duplicatePanel(
+        duplicateSourceId,
+        selectedProject.id,
+        duplicateForm.panel_name.trim(),
+        duplicateForm.panel_description.trim() || null,
+        duplicateForm.location.trim() || null
+      );
+      setDuplicateResult(result);
+      await refreshPanels();
+    } catch (err) {
+      console.error("Panel duplication failed:", err);
+    } finally {
+      setDuplicating(false);
+    }
   };
 
   // ── Render ──────────────────────────────────────────────────────────
@@ -137,7 +174,7 @@ export function PanelsPage() {
                 <TableHead className="px-3 py-2 text-xs">Location</TableHead>
                 <TableHead className="w-[80px] px-3 py-2 text-xs text-center">Signals</TableHead>
                 <TableHead className="w-[80px] px-3 py-2 text-xs text-center">Cables</TableHead>
-                <TableHead className="w-[100px] px-3 py-2" />
+                <TableHead className="w-[120px] px-3 py-2" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -171,6 +208,14 @@ export function PanelsPage() {
                   </TableCell>
                   <TableCell className="px-2 py-2">
                     <div className="flex gap-0.5" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className="rounded p-1 hover:bg-accent disabled:opacity-30"
+                        onClick={() => openDuplicateDialog(panel)}
+                        disabled={readOnly}
+                        title="Duplicate"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
                       <button
                         className="rounded p-1 hover:bg-accent disabled:opacity-30"
                         onClick={() => openEditDialog(panel)}
@@ -238,6 +283,85 @@ export function PanelsPage() {
             <Button onClick={handleSave} disabled={!form.panel_name.trim()}>
               {editingId ? "Save" : "Add"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Duplicate Dialog */}
+      <Dialog
+        open={duplicateSourceId !== null}
+        onOpenChange={(open) => { if (!open) { setDuplicateSourceId(null); setDuplicateResult(null); } }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Duplicate Panel</DialogTitle>
+          </DialogHeader>
+          {duplicateResult ? (
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Panel duplicated successfully.
+              </p>
+              <div className="rounded-md bg-secondary/50 p-3 text-xs space-y-1">
+                <p>{duplicateResult.hardwareCopied} PLC hardware module{duplicateResult.hardwareCopied !== 1 ? "s" : ""}</p>
+                <p>{duplicateResult.signalsCopied} signal{duplicateResult.signalsCopied !== 1 ? "s" : ""}</p>
+                <p>{duplicateResult.cablesCopied} cable{duplicateResult.cablesCopied !== 1 ? "s" : ""} ({duplicateResult.coresCopied} core{duplicateResult.coresCopied !== 1 ? "s" : ""})</p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                This will create a new independent panel with a copy of all PLC Hardware, IO List signals, and Cable Schedule data.
+              </p>
+              <div>
+                <Label className="text-xs">New Panel Name *</Label>
+                <Input
+                  className="mt-1 h-8 text-sm"
+                  value={duplicateForm.panel_name}
+                  onChange={(e) => setDuplicateForm((f) => ({ ...f, panel_name: e.target.value }))}
+                  placeholder="e.g. MCC-02"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Description</Label>
+                <Input
+                  className="mt-1 h-8 text-sm"
+                  value={duplicateForm.panel_description}
+                  onChange={(e) => setDuplicateForm((f) => ({ ...f, panel_description: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Location</Label>
+                <Input
+                  className="mt-1 h-8 text-sm"
+                  value={duplicateForm.location}
+                  onChange={(e) => setDuplicateForm((f) => ({ ...f, location: e.target.value }))}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">{duplicateResult ? "Close" : "Cancel"}</Button>
+            </DialogClose>
+            {!duplicateResult && (
+              <Button
+                onClick={handleDuplicate}
+                disabled={!duplicateForm.panel_name.trim() || duplicating}
+              >
+                {duplicating ? "Duplicating..." : "Duplicate"}
+              </Button>
+            )}
+            {duplicateResult && (
+              <Button
+                onClick={() => {
+                  setDuplicateSourceId(null);
+                  setDuplicateResult(null);
+                  navigate(`/panels/${duplicateResult.newPanelId}`);
+                }}
+              >
+                Open New Panel
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
